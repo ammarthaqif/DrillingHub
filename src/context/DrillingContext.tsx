@@ -203,7 +203,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Firestore Real-Time Synchronization across multiple devices / users
   useEffect(() => {
-    if (isOffline) return;
+    if (isOffline || !db) return;
 
     // Items Listener
     const unsubItems = onSnapshot(collection(db, 'items'), (snapshot) => {
@@ -296,31 +296,31 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Helper to persist single item to Firestore
   const saveItemToFirestore = (item: TubularItem) => {
-    if (!isOffline) {
+    if (!isOffline && db) {
       setDoc(doc(db, 'items', item.id), item).catch(err => console.error('Firestore saveItem err:', err));
     }
   };
 
   const saveTransferToFirestore = (transfer: MaterialTransferTicket) => {
-    if (!isOffline) {
+    if (!isOffline && db) {
       setDoc(doc(db, 'transfers', transfer.id), transfer).catch(err => console.error('Firestore saveTransfer err:', err));
     }
   };
 
   const saveUserToFirestore = (user: UserProfile) => {
-    if (!isOffline) {
+    if (!isOffline && db) {
       setDoc(doc(db, 'users', user.id), user).catch(err => console.error('Firestore saveUser err:', err));
     }
   };
 
   const saveOutboxRecordToFirestore = (record: VerificationEmailRecord) => {
-    if (!isOffline) {
+    if (!isOffline && db) {
       setDoc(doc(db, 'email_outbox', record.id), record).catch(err => console.error('Firestore saveOutbox err:', err));
     }
   };
 
   const saveConfigToFirestore = (config: SystemConfiguration) => {
-    if (!isOffline) {
+    if (!isOffline && db) {
       setDoc(doc(db, 'config', 'global_settings'), config).catch(err => console.error('Firestore saveConfig err:', err));
     }
   };
@@ -697,7 +697,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const deleteItem = (id: string) => {
     setItems(prev => prev.filter(item => item.id !== id));
-    if (!isOffline) {
+    if (!isOffline && db) {
       deleteDoc(doc(db, 'items', id)).catch(err => console.error('Firestore deleteItem err:', err));
     }
   };

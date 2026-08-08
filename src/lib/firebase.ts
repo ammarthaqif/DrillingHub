@@ -3,17 +3,24 @@ import { getFirestore, collection, doc, onSnapshot, setDoc, getDocs, updateDoc, 
 import firebaseConfigJson from '../../firebase-applet-config.json';
 
 const firebaseConfig = {
-  apiKey: firebaseConfigJson.apiKey,
-  authDomain: firebaseConfigJson.authDomain,
-  projectId: firebaseConfigJson.projectId,
-  storageBucket: firebaseConfigJson.storageBucket,
-  messagingSenderId: firebaseConfigJson.messagingSenderId,
-  appId: firebaseConfigJson.appId,
+  apiKey: firebaseConfigJson?.apiKey || '',
+  authDomain: firebaseConfigJson?.authDomain || '',
+  projectId: firebaseConfigJson?.projectId || '',
+  storageBucket: firebaseConfigJson?.storageBucket || '',
+  messagingSenderId: firebaseConfigJson?.messagingSenderId || '',
+  appId: firebaseConfigJson?.appId || '',
 };
 
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+let app: any;
+let dbInstance: any;
 
-// Use custom named database ID if provisioned, else default
-export const db = getFirestore(app, firebaseConfigJson.firestoreDatabaseId || '(default)');
+try {
+  app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+  dbInstance = getFirestore(app, firebaseConfigJson?.firestoreDatabaseId || '(default)');
+} catch (e) {
+  console.error('Firebase initialization error, falling back to local database:', e);
+}
+
+export const db = dbInstance;
 
 export { collection, doc, onSnapshot, setDoc, getDocs, updateDoc, deleteDoc, writeBatch };
