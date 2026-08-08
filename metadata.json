@@ -1,0 +1,6 @@
+{
+  "name": "DrillSpec - Tubular & Equipment Campaign Manager",
+  "description": "Comprehensive drilling tubular, tool inventory, inspection tracking, material movement transfer, and campaign readiness audit web app.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
