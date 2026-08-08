@@ -21,7 +21,7 @@ export const CreateTransferModal: React.FC<CreateTransferModalProps> = ({
   onClose,
   initialSelectedItemIds = [],
 }) => {
-  const { items, createTransfer, currentUser } = useDrilling();
+  const { items, createTransfer, currentUser, availableLocations, availableCarrierTypes } = useDrilling();
 
   const [originLocation, setOriginLocation] = useState<LocationType>('Main Supply Base Yard');
   const [destinationLocation, setDestinationLocation] = useState<LocationType>('Offshore Rig Alpha');
@@ -110,7 +110,7 @@ export const CreateTransferModal: React.FC<CreateTransferModalProps> = ({
                   onChange={e => setOriginLocation(e.target.value as LocationType)}
                   className="w-full bg-black/40 border border-white/10 rounded-xl p-2.5 text-white font-medium focus:border-amber-500"
                 >
-                  {LOCATIONS.map(loc => (
+                  {availableLocations.map(loc => (
                     <option key={loc} value={loc} className="bg-[#141417]">{loc}</option>
                   ))}
                 </select>
@@ -123,7 +123,7 @@ export const CreateTransferModal: React.FC<CreateTransferModalProps> = ({
                   onChange={e => setDestinationLocation(e.target.value as LocationType)}
                   className="w-full bg-black/40 border border-white/10 rounded-xl p-2.5 text-cyan-300 font-medium focus:border-amber-500"
                 >
-                  {LOCATIONS.map(loc => (
+                  {availableLocations.map(loc => (
                     <option key={loc} value={loc} className="bg-[#141417]">{loc}</option>
                   ))}
                 </select>
@@ -136,10 +136,9 @@ export const CreateTransferModal: React.FC<CreateTransferModalProps> = ({
                   onChange={e => setCarrierType(e.target.value as any)}
                   className="w-full bg-black/40 border border-white/10 rounded-xl p-2.5 text-white focus:border-amber-500"
                 >
-                  <option value="Supply Vessel" className="bg-[#141417]">Supply Vessel (Offshore Boat)</option>
-                  <option value="Truck Transport" className="bg-[#141417]">Truck Transport (Road Freight)</option>
-                  <option value="Helicopter" className="bg-[#141417]">Helicopter (Hot Shot)</option>
-                  <option value="Third-Party Freight" className="bg-[#141417]">Third-Party Freight</option>
+                  {availableCarrierTypes.map(ct => (
+                    <option key={ct} value={ct} className="bg-[#141417]">{ct}</option>
+                  ))}
                 </select>
               </div>
 

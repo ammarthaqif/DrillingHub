@@ -15,6 +15,7 @@ import { MobileScannerModal } from './components/MobileScannerModal';
 import { AiAuditModal } from './components/AiAuditModal';
 import { AuditReportView } from './components/AuditReportView';
 import { AdminPanel } from './components/AdminPanel';
+import { AuthGate } from './components/AuthGate';
 import { TubularItem } from './types/drilling';
 import { 
   LayoutDashboard, 
@@ -38,11 +39,16 @@ const MainAppContent: React.FC = () => {
     items, 
     transfers, 
     allUsers,
+    isAuthenticated,
     isOffline,
     setIsOffline,
     offlineQueue,
     processSyncQueue
   } = useDrilling();
+
+  if (!isAuthenticated) {
+    return <AuthGate />;
+  }
 
   const [activeNav, setActiveNav] = useState<'dashboard' | 'inventory' | 'holeSection' | 'surplus' | 'movement' | 'audit' | 'admin'>('dashboard');
 

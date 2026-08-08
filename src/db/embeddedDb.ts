@@ -11,6 +11,97 @@ export interface VerificationEmailRecord {
   verificationLink: string;
 }
 
+export type DropdownCategoryKey = 
+  | 'roles' 
+  | 'departments' 
+  | 'locations' 
+  | 'holeSections' 
+  | 'itemCategories' 
+  | 'equipmentConditions' 
+  | 'maintenanceStatuses' 
+  | 'carrierTypes';
+
+export const DEFAULT_ROLES = [
+  'System Administrator',
+  'Drilling Engineer',
+  'Logistics Coordinator',
+  'Materials Coordinator (Supply Base)',
+  'Rig Toolpusher / Materials Specialist',
+  'QA/QC Inspector',
+  'Auditor / Management',
+  'Field Maintenance Technician'
+];
+
+export const DEFAULT_DEPARTMENTS = [
+  'Drilling Operations',
+  'Supply Base Operations',
+  'Offshore Drilling Rig',
+  'Subsea & Wellhead Ops',
+  'QA/QC & Asset Integrity',
+  'Logistics & Marine Freight',
+  'Executive Management'
+];
+
+export const DEFAULT_LOCATIONS = [
+  'Main Supply Base Yard',
+  'Offshore Rig Alpha',
+  'Machine Shop & Testing Facility',
+  'In Transit (Supply Vessel)',
+  'In Transit (Road Truck)',
+  'Vendor Warehouse'
+];
+
+export const DEFAULT_HOLE_SECTIONS = [
+  '36" Conductor',
+  '26" Surface Hole',
+  '17-1/2" Intermediate',
+  '12-1/4" Main Hole',
+  '8-1/2" Reservoir',
+  '6" Liner / Workover',
+  'Unassigned / General'
+];
+
+export const DEFAULT_ITEM_CATEGORIES = [
+  'Casing',
+  'Tubing',
+  'Drill Pipe',
+  'Heavy Weight Drill Pipe (HWDP)',
+  'Drill Collar',
+  'Liner',
+  'Pup Joint',
+  'Crossover Sub',
+  'Float Equipment',
+  'Centralizer & Stop Collar',
+  'Running & Setting Tool',
+  'Downhole Drilling Tool',
+  'Jar & Stabilizer',
+  'Wellhead & Safety Equipment'
+];
+
+export const DEFAULT_EQUIPMENT_CONDITIONS = [
+  'New Purchased',
+  'Used - Good',
+  'Used - Minor Wear',
+  'Backloaded - Pending Recert',
+  'Damaged / Reject'
+];
+
+export const DEFAULT_MAINTENANCE_STATUSES = [
+  'Serviceable (Field Ready)',
+  'Due for Inspection',
+  'Inspection Overdue',
+  'In Refurbishment',
+  'Quarantined / Damaged',
+  'Scrapped'
+];
+
+export const DEFAULT_CARRIER_TYPES = [
+  'Supply Vessel',
+  'Truck Transport',
+  'Helicopter',
+  'Third-Party Freight'
+];
+
 export interface SystemConfiguration {
   corporateDomains: string[];
   autoApproveVerifiedCorporateEmails: boolean;
@@ -23,6 +114,16 @@ export interface SystemConfiguration {
   systemName: string;
   maintenanceMode: boolean;
   embeddedDbVersion: string;
+
+  // Customizable Dropdowns
+  customRoles?: string[];
+  customDepartments?: string[];
+  customLocations?: string[];
+  customHoleSections?: string[];
+  customItemCategories?: string[];
+  customEquipmentConditions?: string[];
+  customMaintenanceStatuses?: string[];
+  customCarrierTypes?: string[];
 }
 
 const DB_NAME = 'DrillSpec_Embedded_Realtime_DB';

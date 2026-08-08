@@ -15,11 +15,27 @@ import {
   MaintenanceLog
 } from '../types/drilling';
 import { INITIAL_ITEMS, INITIAL_TRANSFERS, INITIAL_USERS } from '../data/initialData';
-import { embeddedDb, VerificationEmailRecord, SystemConfiguration } from '../db/embeddedDb';
+import { 
+  embeddedDb, 
+  VerificationEmailRecord, 
+  SystemConfiguration,
+  DropdownCategoryKey,
+  DEFAULT_ROLES,
+  DEFAULT_DEPARTMENTS,
+  DEFAULT_LOCATIONS,
+  DEFAULT_HOLE_SECTIONS,
+  DEFAULT_ITEM_CATEGORIES,
+  DEFAULT_EQUIPMENT_CONDITIONS,
+  DEFAULT_MAINTENANCE_STATUSES,
+  DEFAULT_CARRIER_TYPES
+} from '../db/embeddedDb';
 
 interface DrillingContextType {
   currentUser: UserProfile;
   allUsers: UserProfile[];
+  isAuthenticated: boolean;
+  loginUser: (userId: string, accessKey?: string) => { success: boolean; message: string };
+  logoutUser: () => void;
   setCurrentUserRole: (role: UserRole) => void;
   registerUser: (newUser: { name: string; email: string; role: UserRole; department: string; location: LocationType }) => { success: boolean; message: string; user?: UserProfile };
   updateUserStatus: (userId: string, status: UserAccountStatus) => void;
@@ -33,6 +49,19 @@ interface DrillingContextType {
   removeCorporateDomain: (domain: string) => void;
   exportDatabaseSnapshot: () => void;
   resetDatabaseToInitial: () => void;
+  
+  // Customizable Dropdowns
+  availableRoles: string[];
+  availableDepartments: string[];
+  availableLocations: string[];
+  availableHoleSections: string[];
+  availableCategories: string[];
+  availableEquipmentConditions: string[];
+  availableMaintenanceStatuses: string[];
+  availableCarrierTypes: string[];
+  addDropdownOption: (categoryKey: DropdownCategoryKey, newValue: string) => { success: boolean; message: string };
+  removeDropdownOption: (categoryKey: DropdownCategoryKey, valueToRemove: string) => { success: boolean; message: string };
+  resetDropdownOptions: (categoryKey?: DropdownCategoryKey) => void;
   
   // Inventory
   items: TubularItem[];
@@ -128,6 +157,15 @@ const DEFAULT_CONFIG: SystemConfiguration = {
   systemName: 'DRILLCORE OS - Campaign Inventory Engine',
   maintenanceMode: false,
   embeddedDbVersion: '1.0.0-embedded',
+
+  customRoles: DEFAULT_ROLES,
+  customDepartments: DEFAULT_DEPARTMENTS,
+  customLocations: DEFAULT_LOCATIONS,
+  customHoleSections: DEFAULT_HOLE_SECTIONS,
+  customItemCategories: DEFAULT_ITEM_CATEGORIES,
+  customEquipmentConditions: DEFAULT_EQUIPMENT_CONDITIONS,
+  customMaintenanceStatuses: DEFAULT_MAINTENANCE_STATUSES,
+  customCarrierTypes: DEFAULT_CARRIER_TYPES,
 };
 
 const DrillingContext = createContext<DrillingContextType | undefined>(undefined);
@@ -143,9 +181,63 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }));
   });
 
+  // Authentication & Session State
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    try {
+      const savedSession = localStorage.getItem('drillcore_auth_session');
+      return savedSession === 'true';
+    } catch {
+      return false;
+    }
+  });
+
   const [currentUser, setCurrentUser] = useState<UserProfile>(() => {
+    try {
+      const activeId = localStorage.getItem('drillcore_active_user_id');
+      if (activeId) {
+        const found = allUsers.find(u => u.id === activeId);
+        if (found) return found;
+      }
+    } catch {}
     return allUsers[0] || INITIAL_USERS[0];
   });
+
+  const loginUser = (userId: string, _accessKey?: string) => {
+    const user = allUsers.find(
+      u => u.id === userId || u.email.toLowerCase() === userId.toLowerCase()
+    );
+    if (!user) {
+      return { success: false, message: 'User identity not found in corporate directory.' };
+    }
+
+    if (user.status === 'Suspended' || user.status === 'Deactivated') {
+      return { success: false, message: `Access Denied: Account is ${user.status}.` };
+    }
+
+    if (user.status === 'Pending Email Verification') {
+      return { success: false, message: 'Account requires email domain verification.' };
+    }
+
+    if (user.status === 'Pending Admin Approval') {
+      return { success: false, message: 'Account is pending Administrator security review.' };
+    }
+
+    setCurrentUser(user);
+    setIsAuthenticated(true);
+    try {
+      localStorage.setItem('drillcore_auth_session', 'true');
+      localStorage.setItem('drillcore_active_user_id', user.id);
+    } catch {}
+
+    return { success: true, message: `Authenticated as ${user.name} (${user.role}).` };
+  };
+
+  const logoutUser = () => {
+    setIsAuthenticated(false);
+    try {
+      localStorage.removeItem('drillcore_auth_session');
+    } catch {}
+  };
 
   // Outbox & System Config
   const [emailOutbox, setEmailOutbox] = useState<VerificationEmailRecord[]>(() => {
@@ -498,6 +590,181 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       saveConfigToFirestore(next);
       return next;
     });
+  };
+
+  // Customizable Dropdown Computed Lists
+  const availableRoles = useMemo(() => {
+    return systemConfig.customRoles && systemConfig.customRoles.length > 0 
+      ? systemConfig.customRoles 
+      : DEFAULT_ROLES;
+  }, [systemConfig.customRoles]);
+
+  const availableDepartments = useMemo(() => {
+    return systemConfig.customDepartments && systemConfig.customDepartments.length > 0 
+      ? systemConfig.customDepartments 
+      : DEFAULT_DEPARTMENTS;
+  }, [systemConfig.customDepartments]);
+
+  const availableLocations = useMemo(() => {
+    return systemConfig.customLocations && systemConfig.customLocations.length > 0 
+      ? systemConfig.customLocations 
+      : DEFAULT_LOCATIONS;
+  }, [systemConfig.customLocations]);
+
+  const availableHoleSections = useMemo(() => {
+    return systemConfig.customHoleSections && systemConfig.customHoleSections.length > 0 
+      ? systemConfig.customHoleSections 
+      : DEFAULT_HOLE_SECTIONS;
+  }, [systemConfig.customHoleSections]);
+
+  const availableCategories = useMemo(() => {
+    return systemConfig.customItemCategories && systemConfig.customItemCategories.length > 0 
+      ? systemConfig.customItemCategories 
+      : DEFAULT_ITEM_CATEGORIES;
+  }, [systemConfig.customItemCategories]);
+
+  const availableEquipmentConditions = useMemo(() => {
+    return systemConfig.customEquipmentConditions && systemConfig.customEquipmentConditions.length > 0 
+      ? systemConfig.customEquipmentConditions 
+      : DEFAULT_EQUIPMENT_CONDITIONS;
+  }, [systemConfig.customEquipmentConditions]);
+
+  const availableMaintenanceStatuses = useMemo(() => {
+    return systemConfig.customMaintenanceStatuses && systemConfig.customMaintenanceStatuses.length > 0 
+      ? systemConfig.customMaintenanceStatuses 
+      : DEFAULT_MAINTENANCE_STATUSES;
+  }, [systemConfig.customMaintenanceStatuses]);
+
+  const availableCarrierTypes = useMemo(() => {
+    return systemConfig.customCarrierTypes && systemConfig.customCarrierTypes.length > 0 
+      ? systemConfig.customCarrierTypes 
+      : DEFAULT_CARRIER_TYPES;
+  }, [systemConfig.customCarrierTypes]);
+
+  const addDropdownOption = (categoryKey: DropdownCategoryKey, newValue: string) => {
+    const trimmed = newValue.trim();
+    if (!trimmed) return { success: false, message: 'Option text cannot be empty.' };
+
+    let currentList: string[] = [];
+    let configField: keyof SystemConfiguration = 'customRoles';
+
+    switch (categoryKey) {
+      case 'roles':
+        currentList = availableRoles;
+        configField = 'customRoles';
+        break;
+      case 'departments':
+        currentList = availableDepartments;
+        configField = 'customDepartments';
+        break;
+      case 'locations':
+        currentList = availableLocations;
+        configField = 'customLocations';
+        break;
+      case 'holeSections':
+        currentList = availableHoleSections;
+        configField = 'customHoleSections';
+        break;
+      case 'itemCategories':
+        currentList = availableCategories;
+        configField = 'customItemCategories';
+        break;
+      case 'equipmentConditions':
+        currentList = availableEquipmentConditions;
+        configField = 'customEquipmentConditions';
+        break;
+      case 'maintenanceStatuses':
+        currentList = availableMaintenanceStatuses;
+        configField = 'customMaintenanceStatuses';
+        break;
+      case 'carrierTypes':
+        currentList = availableCarrierTypes;
+        configField = 'customCarrierTypes';
+        break;
+    }
+
+    if (currentList.some(item => item.toLowerCase() === trimmed.toLowerCase())) {
+      return { success: false, message: `"${trimmed}" already exists in this dropdown list.` };
+    }
+
+    const nextList = [...currentList, trimmed];
+    updateSystemConfig({ [configField]: nextList });
+    return { success: true, message: `Added "${trimmed}" to dropdown options.` };
+  };
+
+  const removeDropdownOption = (categoryKey: DropdownCategoryKey, valueToRemove: string) => {
+    let currentList: string[] = [];
+    let configField: keyof SystemConfiguration = 'customRoles';
+
+    switch (categoryKey) {
+      case 'roles':
+        currentList = availableRoles;
+        configField = 'customRoles';
+        break;
+      case 'departments':
+        currentList = availableDepartments;
+        configField = 'customDepartments';
+        break;
+      case 'locations':
+        currentList = availableLocations;
+        configField = 'customLocations';
+        break;
+      case 'holeSections':
+        currentList = availableHoleSections;
+        configField = 'customHoleSections';
+        break;
+      case 'itemCategories':
+        currentList = availableCategories;
+        configField = 'customItemCategories';
+        break;
+      case 'equipmentConditions':
+        currentList = availableEquipmentConditions;
+        configField = 'customEquipmentConditions';
+        break;
+      case 'maintenanceStatuses':
+        currentList = availableMaintenanceStatuses;
+        configField = 'customMaintenanceStatuses';
+        break;
+      case 'carrierTypes':
+        currentList = availableCarrierTypes;
+        configField = 'customCarrierTypes';
+        break;
+    }
+
+    if (currentList.length <= 1) {
+      return { success: false, message: 'At least one dropdown option must remain in the list.' };
+    }
+
+    const nextList = currentList.filter(item => item !== valueToRemove);
+    updateSystemConfig({ [configField]: nextList });
+    return { success: true, message: `Removed "${valueToRemove}" from dropdown options.` };
+  };
+
+  const resetDropdownOptions = (categoryKey?: DropdownCategoryKey) => {
+    if (!categoryKey) {
+      updateSystemConfig({
+        customRoles: DEFAULT_ROLES,
+        customDepartments: DEFAULT_DEPARTMENTS,
+        customLocations: DEFAULT_LOCATIONS,
+        customHoleSections: DEFAULT_HOLE_SECTIONS,
+        customItemCategories: DEFAULT_ITEM_CATEGORIES,
+        customEquipmentConditions: DEFAULT_EQUIPMENT_CONDITIONS,
+        customMaintenanceStatuses: DEFAULT_MAINTENANCE_STATUSES,
+        customCarrierTypes: DEFAULT_CARRIER_TYPES,
+      });
+      return;
+    }
+
+    switch (categoryKey) {
+      case 'roles': updateSystemConfig({ customRoles: DEFAULT_ROLES }); break;
+      case 'departments': updateSystemConfig({ customDepartments: DEFAULT_DEPARTMENTS }); break;
+      case 'locations': updateSystemConfig({ customLocations: DEFAULT_LOCATIONS }); break;
+      case 'holeSections': updateSystemConfig({ customHoleSections: DEFAULT_HOLE_SECTIONS }); break;
+      case 'itemCategories': updateSystemConfig({ customItemCategories: DEFAULT_ITEM_CATEGORIES }); break;
+      case 'equipmentConditions': updateSystemConfig({ customEquipmentConditions: DEFAULT_EQUIPMENT_CONDITIONS }); break;
+      case 'maintenanceStatuses': updateSystemConfig({ customMaintenanceStatuses: DEFAULT_MAINTENANCE_STATUSES }); break;
+      case 'carrierTypes': updateSystemConfig({ customCarrierTypes: DEFAULT_CARRIER_TYPES }); break;
+    }
   };
 
   const addCorporateDomain = (domain: string) => {
@@ -982,6 +1249,9 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     <DrillingContext.Provider value={{
       currentUser,
       allUsers,
+      isAuthenticated,
+      loginUser,
+      logoutUser,
       setCurrentUserRole,
       registerUser,
       updateUserStatus,
@@ -995,6 +1265,17 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       removeCorporateDomain,
       exportDatabaseSnapshot,
       resetDatabaseToInitial,
+      availableRoles,
+      availableDepartments,
+      availableLocations,
+      availableHoleSections,
+      availableCategories,
+      availableEquipmentConditions,
+      availableMaintenanceStatuses,
+      availableCarrierTypes,
+      addDropdownOption,
+      removeDropdownOption,
+      resetDropdownOptions,
       items,
       addItem,
       bulkAddItems,

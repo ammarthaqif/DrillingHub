@@ -48,7 +48,15 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({
   onClose,
   editItem,
 }) => {
-  const { addItem, updateItem } = useDrilling();
+  const { 
+    addItem, 
+    updateItem,
+    availableHoleSections,
+    availableCategories,
+    availableLocations,
+    availableEquipmentConditions,
+    availableMaintenanceStatuses
+  } = useDrilling();
 
   const [tagNumber, setTagNumber] = useState(editItem ? editItem.tagNumber : `CSG-${Math.floor(100 + Math.random() * 900)}`);
   const [serialNumber, setSerialNumber] = useState(editItem ? editItem.serialNumber : `SN-${Date.now().toString().slice(-6)}`);
@@ -255,7 +263,7 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({
                   onChange={e => setCategory(e.target.value as ItemCategory)}
                   className="w-full bg-black/40 border border-white/10 rounded-xl p-2.5 text-white focus:border-amber-500"
                 >
-                  {CATEGORIES.map(cat => (
+                  {availableCategories.map(cat => (
                     <option key={cat} value={cat} className="bg-[#141417]">{cat}</option>
                   ))}
                 </select>
@@ -268,7 +276,7 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({
                   onChange={e => setHoleSection(e.target.value as HoleSection)}
                   className="w-full bg-black/40 border border-white/10 rounded-xl p-2.5 text-amber-400 font-semibold focus:border-amber-500"
                 >
-                  {HOLE_SECTIONS.map(sec => (
+                  {availableHoleSections.map(sec => (
                     <option key={sec} value={sec} className="bg-[#141417]">{sec}</option>
                   ))}
                 </select>
@@ -355,7 +363,7 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({
                   onChange={e => setCurrentLocation(e.target.value as LocationType)}
                   className="w-full bg-black/40 border border-white/10 rounded-xl p-2.5 text-white focus:border-amber-500"
                 >
-                  {LOCATIONS.map(loc => (
+                  {availableLocations.map(loc => (
                     <option key={loc} value={loc} className="bg-[#141417]">{loc}</option>
                   ))}
                 </select>
@@ -379,11 +387,9 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({
                   onChange={e => setStatus(e.target.value as MaintenanceStatus)}
                   className="w-full bg-black/40 border border-white/10 rounded-xl p-2.5 text-white focus:border-amber-500 font-semibold"
                 >
-                  <option value="Serviceable (Field Ready)" className="bg-[#141417]">Serviceable (Field Ready)</option>
-                  <option value="Due for Inspection" className="bg-[#141417]">Due for Inspection</option>
-                  <option value="Inspection Overdue" className="bg-[#141417]">Inspection Overdue</option>
-                  <option value="In Refurbishment" className="bg-[#141417]">In Refurbishment</option>
-                  <option value="Quarantined / Damaged" className="bg-[#141417]">Quarantined / Damaged</option>
+                  {availableMaintenanceStatuses.map(st => (
+                    <option key={st} value={st} className="bg-[#141417]">{st}</option>
+                  ))}
                 </select>
               </div>
             </div>

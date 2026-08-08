@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useDrilling } from '../context/DrillingContext';
 import { UserRole, UserAccountStatus, UserProfile } from '../types/drilling';
+import { DropdownCategoryKey } from '../db/embeddedDb';
 import { 
   Users, 
   ShieldCheck, 
@@ -28,7 +29,17 @@ import {
   Sparkles,
   Inbox,
   Clock,
-  Shield
+  Shield,
+  Trash2,
+  RotateCcw,
+  MapPin,
+  Layers,
+  HardHat,
+  Wrench,
+  Truck,
+  Tag,
+  ChevronRight,
+  ListFilter
 } from 'lucide-react';
 
 export const AdminPanel: React.FC = () => {
@@ -46,10 +57,26 @@ export const AdminPanel: React.FC = () => {
     addCorporateDomain,
     removeCorporateDomain,
     exportDatabaseSnapshot,
-    resetDatabaseToInitial
+    resetDatabaseToInitial,
+    availableRoles,
+    availableDepartments,
+    availableLocations,
+    availableHoleSections,
+    availableCategories,
+    availableEquipmentConditions,
+    availableMaintenanceStatuses,
+    availableCarrierTypes,
+    addDropdownOption,
+    removeDropdownOption,
+    resetDropdownOptions
   } = useDrilling();
 
-  const [activeTab, setActiveTab] = useState<'users' | 'emailConfig' | 'sysConfig' | 'database'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'emailConfig' | 'dropdowns' | 'sysConfig' | 'database'>('users');
+  
+  // Dropdown Manager State
+  const [selectedDropdownCategory, setSelectedDropdownCategory] = useState<DropdownCategoryKey>('roles');
+  const [newOptionText, setNewOptionText] = useState('');
+  const [dropdownMsg, setDropdownMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   
   // Registration Form State
   const [showRegisterModal, setShowRegisterModal] = useState(false);
@@ -243,6 +270,16 @@ export const AdminPanel: React.FC = () => {
         >
           <Mail className="w-4 h-4" />
           <span>Corporate Email Validation & Outbox ({emailOutbox.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('dropdowns')}
+          className={`px-4 py-3 border-b-2 transition flex items-center space-x-2 ${
+            activeTab === 'dropdowns' ? 'border-amber-500 text-amber-400 bg-amber-500/5' : 'border-transparent text-gray-400 hover:text-white'
+          }`}
+        >
+          <ListFilter className="w-4 h-4 text-amber-400" />
+          <span>Form Dropdowns Customizer</span>
         </button>
 
         <button
@@ -571,6 +608,300 @@ export const AdminPanel: React.FC = () => {
 
         </div>
       )}
+
+      {/* TAB 3: FORM DROPDOWNS CUSTOMIZER */}
+      {activeTab === 'dropdowns' && (() => {
+        const categoriesConfig: {
+          key: DropdownCategoryKey;
+          label: string;
+          icon: React.ReactNode;
+          description: string;
+          items: string[];
+          usageNote: string;
+        }[] = [
+          {
+            key: 'roles',
+            label: 'Operational Roles',
+            icon: <HardHat className="w-4 h-4 text-amber-400" />,
+            description: 'Corporate RBAC roles assigned to users during registration & role switching',
+            items: availableRoles,
+            usageNote: 'Used in AuthGate, Admin Panel, Registration & Role Switcher'
+          },
+          {
+            key: 'departments',
+            label: 'Departments',
+            icon: <Building2 className="w-4 h-4 text-cyan-400" />,
+            description: 'Operational & technical departments for user accounts',
+            items: availableDepartments,
+            usageNote: 'Used in User Registration, Access Request & Audit Logs'
+          },
+          {
+            key: 'locations',
+            label: 'Primary Locations & Yards',
+            icon: <MapPin className="w-4 h-4 text-emerald-400" />,
+            description: 'Supply base yards, offshore rigs, machine shops, and warehouses',
+            items: availableLocations,
+            usageNote: 'Used in Inventory Items, Material Transfer Tickets & Stock Filters'
+          },
+          {
+            key: 'holeSections',
+            label: 'Target Hole Sections',
+            icon: <Layers className="w-4 h-4 text-purple-400" />,
+            description: 'Well construction hole sizes and casing program sections',
+            items: availableHoleSections,
+            usageNote: 'Used in Tubular Modal, Campaign Planner & Inventory Filters'
+          },
+          {
+            key: 'itemCategories',
+            label: 'Item & Equipment Categories',
+            icon: <Tag className="w-4 h-4 text-blue-400" />,
+            description: 'Tubular, BHA, tool, casing, and downhole equipment classifications',
+            items: availableCategories,
+            usageNote: 'Used in Add/Edit Tubular Item & Excel Upload Mapper'
+          },
+          {
+            key: 'equipmentConditions',
+            label: 'Equipment Condition Grades',
+            icon: <Wrench className="w-4 h-4 text-rose-400" />,
+            description: 'Tubular & tool physical wear grades (e.g. Premium Class, Class 2, Scrap)',
+            items: availableEquipmentConditions,
+            usageNote: 'Used in QA/QC Inspection & Item Details Modal'
+          },
+          {
+            key: 'maintenanceStatuses',
+            label: 'Maintenance & Inspection Statuses',
+            icon: <ShieldCheck className="w-4 h-4 text-amber-300" />,
+            description: 'Operational readiness & recertification statuses',
+            items: availableMaintenanceStatuses,
+            usageNote: 'Used in Inventory Table Filters, Bulk Status Updates & QA/QC Log'
+          },
+          {
+            key: 'carrierTypes',
+            label: 'Transport Carrier Types',
+            icon: <Truck className="w-4 h-4 text-cyan-300" />,
+            description: 'Logistics vessels, heavy haulers, third-party trucks, and transport modes',
+            items: availableCarrierTypes,
+            usageNote: 'Used in Material Transfer Tickets (MTT) Creation & Dispatch'
+          }
+        ];
+
+        const activeCat = categoriesConfig.find(c => c.key === selectedDropdownCategory) || categoriesConfig[0];
+
+        const handleAddOptionSubmit = (e: React.FormEvent) => {
+          e.preventDefault();
+          setDropdownMsg(null);
+          if (!newOptionText.trim()) {
+            setDropdownMsg({ type: 'error', text: 'Please enter a valid option name.' });
+            return;
+          }
+
+          const res = addDropdownOption(selectedDropdownCategory, newOptionText.trim());
+          if (res.success) {
+            setDropdownMsg({ type: 'success', text: `Added "${newOptionText.trim()}" to ${activeCat.label}.` });
+            setNewOptionText('');
+          } else {
+            setDropdownMsg({ type: 'error', text: res.message });
+          }
+        };
+
+        const handleRemoveOptionClick = (option: string) => {
+          setDropdownMsg(null);
+          const res = removeDropdownOption(selectedDropdownCategory, option);
+          if (res.success) {
+            setDropdownMsg({ type: 'success', text: `Removed "${option}" from ${activeCat.label}.` });
+          } else {
+            setDropdownMsg({ type: 'error', text: res.message });
+          }
+        };
+
+        const handleResetCategoryClick = () => {
+          if (window.confirm(`Reset "${activeCat.label}" options to system default initial list?`)) {
+            resetDropdownOptions(selectedDropdownCategory);
+            setDropdownMsg({ type: 'success', text: `Reset "${activeCat.label}" to system default options.` });
+          }
+        };
+
+        const handleResetAllClick = () => {
+          if (window.confirm(`Reset ALL dropdown categories to system initial defaults?`)) {
+            resetDropdownOptions();
+            setDropdownMsg({ type: 'success', text: `All form dropdown input lists reset to system initial defaults.` });
+          }
+        };
+
+        return (
+          <div className="space-y-6">
+            
+            {/* Top Banner Notice */}
+            <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-start space-x-3">
+                <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-400 mt-0.5 shrink-0">
+                  <ListFilter className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-sm">Dynamic Input Form Dropdown Customizer</h3>
+                  <p className="text-xs text-gray-300 mt-0.5">
+                    Customize the options for operational roles, departments, locations/yards, hole sections, categories, equipment conditions, maintenance statuses, and carrier types across all input forms.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={handleResetAllClick}
+                className="px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10 text-xs font-semibold flex items-center space-x-1.5 shrink-0 transition"
+                title="Reset all dropdown categories to default initial lists"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                <span>Reset All to Initial Defaults</span>
+              </button>
+            </div>
+
+            {/* Notification Banner */}
+            {dropdownMsg && (
+              <div className={`p-4 rounded-xl border text-xs flex items-center justify-between ${
+                dropdownMsg.type === 'success' 
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' 
+                  : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+              }`}>
+                <div className="flex items-center space-x-2">
+                  {dropdownMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <AlertCircle className="w-4 h-4 text-rose-400" />}
+                  <span className="font-medium">{dropdownMsg.text}</span>
+                </div>
+                <button onClick={() => setDropdownMsg(null)} className="text-gray-400 hover:text-white">
+                  <XCircle className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            {/* Category Selector Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {categoriesConfig.map((cat) => {
+                const isSelected = selectedDropdownCategory === cat.key;
+                return (
+                  <button
+                    key={cat.key}
+                    onClick={() => {
+                      setSelectedDropdownCategory(cat.key);
+                      setDropdownMsg(null);
+                    }}
+                    className={`p-3.5 rounded-2xl border text-left transition flex flex-col justify-between space-y-2 ${
+                      isSelected
+                        ? 'bg-amber-500/10 border-amber-500/50 shadow-lg text-white'
+                        : 'bg-[#111114] border-white/10 hover:border-white/20 text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="p-2 rounded-xl bg-white/5">{cat.icon}</div>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                        isSelected ? 'bg-amber-500 text-black' : 'bg-white/10 text-gray-300'
+                      }`}>
+                        {cat.items.length} items
+                      </span>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-xs text-white">{cat.label}</h4>
+                      <p className="text-[10px] text-gray-400 line-clamp-1 mt-0.5">{cat.description}</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Active Category Manager Box */}
+            <div className="bg-[#111114] border border-white/10 rounded-2xl p-6 space-y-6">
+              
+              {/* Category Title & Reset Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
+                <div className="flex items-center space-x-3">
+                  <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20">
+                    {activeCat.icon}
+                  </div>
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <h3 className="font-bold text-white text-base">{activeCat.label}</h3>
+                      <span className="px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[10px] font-mono font-bold">
+                        {activeCat.items.length} Options Defined
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-0.5">{activeCat.description}</p>
+                    <p className="text-[11px] text-cyan-400/90 font-mono mt-1 flex items-center space-x-1">
+                      <ChevronRight className="w-3 h-3 text-cyan-400" />
+                      <span>{activeCat.usageNote}</span>
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleResetCategoryClick}
+                  className="px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10 text-xs font-semibold flex items-center space-x-1.5 shrink-0 transition"
+                  title="Reset this category to default options"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Reset Category Defaults</span>
+                </button>
+              </div>
+
+              {/* Add New Option Form */}
+              <form onSubmit={handleAddOptionSubmit} className="flex flex-col sm:flex-row gap-2.5">
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    value={newOptionText}
+                    onChange={(e) => setNewOptionText(e.target.value)}
+                    placeholder={`Add new ${activeCat.label.toLowerCase()} option...`}
+                    className="w-full bg-black/60 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500 placeholder-gray-500"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-amber-500 text-black font-extrabold text-xs hover:bg-amber-400 transition shadow-lg flex items-center justify-center space-x-2 shrink-0"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Add Option</span>
+                </button>
+              </form>
+
+              {/* Active Options List */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center justify-between">
+                  <span>Current {activeCat.label} Dropdown Options</span>
+                  <span className="text-[10px] text-gray-500 font-normal">Click delete icon to remove custom or default entries</span>
+                </h4>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {activeCat.items.map((opt, idx) => (
+                    <div
+                      key={opt + idx}
+                      className="bg-white/5 border border-white/10 rounded-xl p-3 flex items-center justify-between gap-2 group hover:border-amber-500/30 transition"
+                    >
+                      <div className="flex items-center space-x-2.5 truncate">
+                        <span className="w-5 h-5 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-[10px] font-mono font-bold text-amber-400 shrink-0">
+                          {idx + 1}
+                        </span>
+                        <span className="text-xs font-semibold text-white truncate" title={opt}>
+                          {opt}
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveOptionClick(opt)}
+                        disabled={activeCat.items.length <= 1}
+                        className="p-1.5 rounded-lg text-gray-500 hover:text-rose-400 hover:bg-rose-500/10 transition disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-500 shrink-0"
+                        title={activeCat.items.length <= 1 ? "Cannot delete sole remaining option" : `Remove "${opt}"`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+            </div>
+
+          </div>
+        );
+      })()}
 
       {/* TAB 3: SYSTEM CONFIGURATION & ERP SETTINGS */}
       {activeTab === 'sysConfig' && (

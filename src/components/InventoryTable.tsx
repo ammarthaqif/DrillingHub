@@ -76,7 +76,10 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
     setSelectedStatus,
     showSurplusOnly,
     setShowSurplusOnly,
-    bulkUpdateStatus
+    bulkUpdateStatus,
+    availableHoleSections,
+    availableLocations,
+    availableMaintenanceStatuses
   } = useDrilling();
 
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
@@ -191,7 +194,7 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
               className="bg-white/5 border border-white/10 text-gray-200 text-xs rounded-xl px-3.5 py-2.5 focus:outline-none focus:border-amber-500"
             >
               <option value="ALL" className="bg-[#141417]">All Locations</option>
-              {LOCATIONS.filter(l => l !== 'ALL').map(loc => (
+              {availableLocations.map(loc => (
                 <option key={loc} value={loc} className="bg-[#141417]">{loc}</option>
               ))}
             </select>
@@ -203,7 +206,7 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
               className="bg-white/5 border border-white/10 text-gray-200 text-xs rounded-xl px-3.5 py-2.5 focus:outline-none focus:border-amber-500"
             >
               <option value="ALL" className="bg-[#141417]">All Statuses</option>
-              {STATUSES.filter(s => s !== 'ALL').map(stat => (
+              {availableMaintenanceStatuses.map(stat => (
                 <option key={stat} value={stat} className="bg-[#141417]">{stat}</option>
               ))}
             </select>
@@ -239,10 +242,10 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
             <Layers className="w-3.5 h-3.5 text-amber-500" />
             <span>Hole Section:</span>
           </span>
-          {HOLE_SECTIONS.map((sec) => (
+          {['ALL', ...availableHoleSections].map((sec) => (
             <button
               key={sec}
-              onClick={() => setSelectedHoleSection(sec)}
+              onClick={() => setSelectedHoleSection(sec as HoleSection | 'ALL')}
               className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition ${
                 selectedHoleSection === sec
                   ? 'bg-amber-500 text-black font-semibold shadow-sm'
