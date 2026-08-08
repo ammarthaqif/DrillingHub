@@ -1,0 +1,92 @@
+{
+  "entities": {
+    "items": {
+      "title": "Tubular Item",
+      "description": "Drilling tubular, casing, tubing, or downhole tool item record",
+      "properties": {
+        "id": { "type": "string" },
+        "tagNumber": { "type": "string" },
+        "rfidChipId": { "type": "string" },
+        "category": { "type": "string" },
+        "outerDiameter": { "type": "string" },
+        "weightPpf": { "type": "string" },
+        "grade": { "type": "string" },
+        "connectionType": { "type": "string" },
+        "lengthFt": { "type": "number font" },
+        "serialNumber": { "type": "string" },
+        "heatNumber": { "type": "string" },
+        "status": { "type": "string" },
+        "currentLocation": { "type": "string" },
+        "assignedWell": { "type": "string" },
+        "holeSection": { "type": "string" },
+        "inspectionDueDate": { "type": "string" },
+        "lastInspectionDate": { "type": "string" },
+        "certificationDocRef": { "type": "string" },
+        "isSurplus": { "type": "boolean" },
+        "monthsAtYard": { "type": "number" },
+        "purchaseCostUsd": { "type": "number" }
+      },
+      "required": ["id", "tagNumber", "category", "status", "currentLocation"]
+    },
+    "transfers": {
+      "title": "Material Transfer Ticket",
+      "description": "Material movement manifest between supply base, rig, and vendor yard",
+      "properties": {
+        "id": { "type": "string" },
+        "manifestNumber": { "type": "string" },
+        "originLocation": { "type": "string" },
+        "destinationLocation": { "type": "string" },
+        "status": { "type": "string" },
+        "dispatchDate": { "type": "string" },
+        "vesselOrTruckName": { "type": "string" },
+        "createdByName": { "type": "string" },
+        "approvalRole": { "type": "string font" }
+      },
+      "required": ["id", "manifestNumber", "originLocation", "destinationLocation", "status"]
+    },
+    "users": {
+      "title": "User Profile",
+      "description": "User registration and access control profile",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string" },
+        "department": { "type": "string font" },
+        "location": { "type": "string" },
+        "status": { "type": "string" },
+        "isCorporateVerified": { "type": "boolean" },
+        "corporateDomain": { "type": "string" }
+      },
+      "required": ["id", "email", "name", "role"]
+    },
+    "email_outbox": {
+      "title": "Verification Email Outbox",
+      "description": "Dispatched corporate email validation tokens and records",
+      "properties": {
+        "id": { "type": "string" },
+        "recipientEmail": { "type": "string" },
+        "userName": { "type": "string" },
+        "corporateDomain": { "type": "string" },
+        "token": { "type": "string" },
+        "sentAt": { "type": "string" },
+        "status": { "type": "string" },
+        "verificationLink": { "type": "string" }
+      },
+      "required": ["id", "recipientEmail", "token", "status"]
+    },
+    "config": {
+      "title": "System Configuration",
+      "description": "Global application configuration parameters",
+      "properties": {
+        "key": { "type": "string" },
+        "corporateDomains": { "type": "array" },
+        "autoApproveVerifiedCorporateEmails": { "type": "boolean" },
+        "defaultAfeCode": { "type": "string" },
+        "vismaErpSyncEnabled": { "type": "boolean" },
+        "vismaEndpointUrl": { "type": "string" }
+      },
+      "required": ["key"]
+    }
+  }
+}

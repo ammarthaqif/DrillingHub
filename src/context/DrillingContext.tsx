@@ -93,6 +93,18 @@ interface DrillingContextType {
   filteredItems: TubularItem[];
 }
 
+import { 
+  db, 
+  collection, 
+  doc, 
+  onSnapshot, 
+  setDoc, 
+  getDocs, 
+  updateDoc, 
+  deleteDoc, 
+  writeBatch 
+} from '../lib/firebase';
+
 const DEFAULT_CONFIG: SystemConfiguration = {
   corporateDomains: ['petronas.com', 'shell.com', 'chevron.com', 'totalenergies.com', 'halliburton.com', 'bakerhughes.com', 'drillspec.corp'],
   autoApproveVerifiedCorporateEmails: true,
@@ -165,7 +177,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [selectedStatus, setSelectedStatus] = useState<MaintenanceStatus | 'ALL'>('ALL');
   const [showSurplusOnly, setShowSurplusOnly] = useState(false);
 
-  // Sync state to Embedded Realtime Database & Broadcast channel
+  // Sync state to local storage & broadcast channel
   useEffect(() => {
     embeddedDb.saveItems(items);
     embeddedDb.notify('ITEMS_UPDATED', items);
@@ -189,20 +201,129 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     embeddedDb.saveConfig(systemConfig);
   }, [systemConfig]);
 
-  // Real-time listener for multi-tab pub/sub
+  // Firestore Real-Time Synchronization across multiple devices / users
   useEffect(() => {
-    const unsubscribe = embeddedDb.subscribe((event) => {
-      if (event.type === 'ITEMS_UPDATED' && event.payload) {
-        setItems(event.payload);
-      } else if (event.type === 'TRANSFERS_UPDATED' && event.payload) {
-        setTransfers(event.payload);
-      } else if (event.type === 'USERS_UPDATED' && event.payload) {
-        setAllUsers(event.payload);
+    if (isOffline) return;
+
+    // Items Listener
+    const unsubItems = onSnapshot(collection(db, 'items'), (snapshot) => {
+      if (!snapshot.empty) {
+        const fetchedItems: TubularItem[] = [];
+        snapshot.forEach((docSnap) => {
+          fetchedItems.push(docSnap.data() as TubularItem);
+        });
+        setItems(fetchedItems);
+      } else {
+        // Seed initial items to Firestore if empty
+        INITIAL_ITEMS.forEach((it) => {
+          setDoc(doc(db, 'items', it.id), it).catch(() => {});
+        });
       }
+    }, (err) => {
+      console.warn('Firestore items sync offline fallback:', err);
     });
 
-    return unsubscribe;
-  }, []);
+    // Transfers Listener
+    const unsubTransfers = onSnapshot(collection(db, 'transfers'), (snapshot) => {
+      if (!snapshot.empty) {
+        const fetchedTransfers: MaterialTransferTicket[] = [];
+        snapshot.forEach((docSnap) => {
+          fetchedTransfers.push(docSnap.data() as MaterialTransferTicket);
+        });
+        setTransfers(fetchedTransfers);
+      } else {
+        INITIAL_TRANSFERS.forEach((tr) => {
+          setDoc(doc(db, 'transfers', tr.id), tr).catch(() => {});
+        });
+      }
+    }, (err) => {
+      console.warn('Firestore transfers sync offline fallback:', err);
+    });
+
+    // Users Listener
+    const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+      if (!snapshot.empty) {
+        const fetchedUsers: UserProfile[] = [];
+        snapshot.forEach((docSnap) => {
+          fetchedUsers.push(docSnap.data() as UserProfile);
+        });
+        setAllUsers(fetchedUsers);
+      } else {
+        INITIAL_USERS.forEach((usr) => {
+          setDoc(doc(db, 'users', usr.id), { ...usr, status: 'Active Approved', isCorporateVerified: true }).catch(() => {});
+        });
+      }
+    }, (err) => {
+      console.warn('Firestore users sync offline fallback:', err);
+    });
+
+    // Email Outbox Listener
+    const unsubOutbox = onSnapshot(collection(db, 'email_outbox'), (snapshot) => {
+      if (!snapshot.empty) {
+        const fetchedOutbox: VerificationEmailRecord[] = [];
+        snapshot.forEach((docSnap) => {
+          fetchedOutbox.push(docSnap.data() as VerificationEmailRecord);
+        });
+        setEmailOutbox(fetchedOutbox);
+      }
+    }, (err) => {
+      console.warn('Firestore outbox sync fallback:', err);
+    });
+
+    // System Config Listener
+    const unsubConfig = onSnapshot(collection(db, 'config'), (snapshot) => {
+      if (!snapshot.empty) {
+        snapshot.forEach((docSnap) => {
+          if (docSnap.id === 'global_settings') {
+            setSystemConfig(docSnap.data() as SystemConfiguration);
+          }
+        });
+      } else {
+        setDoc(doc(db, 'config', 'global_settings'), DEFAULT_CONFIG).catch(() => {});
+      }
+    }, (err) => {
+      console.warn('Firestore config sync fallback:', err);
+    });
+
+    return () => {
+      unsubItems();
+      unsubTransfers();
+      unsubUsers();
+      unsubOutbox();
+      unsubConfig();
+    };
+  }, [isOffline]);
+
+  // Helper to persist single item to Firestore
+  const saveItemToFirestore = (item: TubularItem) => {
+    if (!isOffline) {
+      setDoc(doc(db, 'items', item.id), item).catch(err => console.error('Firestore saveItem err:', err));
+    }
+  };
+
+  const saveTransferToFirestore = (transfer: MaterialTransferTicket) => {
+    if (!isOffline) {
+      setDoc(doc(db, 'transfers', transfer.id), transfer).catch(err => console.error('Firestore saveTransfer err:', err));
+    }
+  };
+
+  const saveUserToFirestore = (user: UserProfile) => {
+    if (!isOffline) {
+      setDoc(doc(db, 'users', user.id), user).catch(err => console.error('Firestore saveUser err:', err));
+    }
+  };
+
+  const saveOutboxRecordToFirestore = (record: VerificationEmailRecord) => {
+    if (!isOffline) {
+      setDoc(doc(db, 'email_outbox', record.id), record).catch(err => console.error('Firestore saveOutbox err:', err));
+    }
+  };
+
+  const saveConfigToFirestore = (config: SystemConfiguration) => {
+    if (!isOffline) {
+      setDoc(doc(db, 'config', 'global_settings'), config).catch(err => console.error('Firestore saveConfig err:', err));
+    }
+  };
 
   // Role Switching
   const setCurrentUserRole = (role: UserRole) => {
@@ -256,6 +377,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
 
     setAllUsers(prev => [...prev, userRecord]);
+    saveUserToFirestore(userRecord);
 
     // Dispatch verification email record to outbox
     const emailRecord: VerificationEmailRecord = {
@@ -270,6 +392,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
 
     setEmailOutbox(prev => [emailRecord, ...prev]);
+    saveOutboxRecordToFirestore(emailRecord);
 
     return { 
       success: true, 
@@ -281,11 +404,13 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const updateUserStatus = (userId: string, status: UserAccountStatus) => {
     setAllUsers(prev => prev.map(u => {
       if (u.id === userId) {
-        return {
+        const updated = {
           ...u,
           status,
           approvedBy: status === 'Active Approved' ? currentUser.name : u.approvedBy,
         };
+        saveUserToFirestore(updated);
+        return updated;
       }
       return u;
     }));
@@ -294,7 +419,9 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const updateUserRole = (userId: string, role: UserRole) => {
     setAllUsers(prev => prev.map(u => {
       if (u.id === userId) {
-        return { ...u, role };
+        const updated = { ...u, role };
+        saveUserToFirestore(updated);
+        return updated;
       }
       return u;
     }));
@@ -307,12 +434,15 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const token = `VERIFY-TOK-${Math.floor(100000 + Math.random() * 900000)}`;
     const domain = user.email.split('@')[1] || 'corp.com';
 
-    setAllUsers(prev => prev.map(u => u.id === userId ? {
-      ...u,
+    const updatedUser: UserProfile = {
+      ...user,
       verificationToken: token,
       verificationSentAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
       status: 'Pending Email Verification',
-    } : u));
+    };
+
+    setAllUsers(prev => prev.map(u => u.id === userId ? updatedUser : u));
+    saveUserToFirestore(updatedUser);
 
     const emailRecord: VerificationEmailRecord = {
       id: `email-${Date.now()}`,
@@ -326,6 +456,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
 
     setEmailOutbox(prev => [emailRecord, ...prev]);
+    saveOutboxRecordToFirestore(emailRecord);
   };
 
   const verifyEmailWithToken = (token: string): boolean => {
@@ -337,40 +468,61 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     setAllUsers(prev => prev.map(u => {
       if (u.id === user.id) {
-        return {
+        const updated: UserProfile = {
           ...u,
           status: nextStatus,
           isCorporateVerified: true,
           verificationToken: undefined,
         };
+        saveUserToFirestore(updated);
+        return updated;
       }
       return u;
     }));
 
-    setEmailOutbox(prev => prev.map(e => e.token === token ? { ...e, status: 'Verified' } : e));
+    setEmailOutbox(prev => prev.map(e => {
+      if (e.token === token) {
+        const updatedOutbox = { ...e, status: 'Verified' as const };
+        saveOutboxRecordToFirestore(updatedOutbox);
+        return updatedOutbox;
+      }
+      return e;
+    }));
 
     return true;
   };
 
   const updateSystemConfig = (updates: Partial<SystemConfiguration>) => {
-    setSystemConfig(prev => ({ ...prev, ...updates }));
+    setSystemConfig(prev => {
+      const next = { ...prev, ...updates };
+      saveConfigToFirestore(next);
+      return next;
+    });
   };
 
   const addCorporateDomain = (domain: string) => {
     const cleaned = domain.toLowerCase().replace('@', '').trim();
     if (cleaned && !systemConfig.corporateDomains.includes(cleaned)) {
-      setSystemConfig(prev => ({
-        ...prev,
-        corporateDomains: [...prev.corporateDomains, cleaned],
-      }));
+      setSystemConfig(prev => {
+        const next = {
+          ...prev,
+          corporateDomains: [...prev.corporateDomains, cleaned],
+        };
+        saveConfigToFirestore(next);
+        return next;
+      });
     }
   };
 
   const removeCorporateDomain = (domain: string) => {
-    setSystemConfig(prev => ({
-      ...prev,
-      corporateDomains: prev.corporateDomains.filter(d => d !== domain),
-    }));
+    setSystemConfig(prev => {
+      const next = {
+        ...prev,
+        corporateDomains: prev.corporateDomains.filter(d => d !== domain),
+      };
+      saveConfigToFirestore(next);
+      return next;
+    });
   };
 
   const exportDatabaseSnapshot = () => {
@@ -393,12 +545,20 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const resetDatabaseToInitial = () => {
-    if (window.confirm('Reset embedded database to default campaign baseline? Custom items and users will be replaced.')) {
+    if (window.confirm('Reset database to default campaign baseline? Custom items and users will be replaced.')) {
       setItems(INITIAL_ITEMS);
       setTransfers(INITIAL_TRANSFERS);
-      setAllUsers(INITIAL_USERS.map(u => ({ ...u, status: 'Active Approved', isCorporateVerified: true })));
+      const resetUsers = INITIAL_USERS.map(u => ({ ...u, status: 'Active Approved' as const, isCorporateVerified: true }));
+      setAllUsers(resetUsers);
       setEmailOutbox([]);
       setSystemConfig(DEFAULT_CONFIG);
+
+      if (!isOffline) {
+        INITIAL_ITEMS.forEach(it => saveItemToFirestore(it));
+        INITIAL_TRANSFERS.forEach(tr => saveTransferToFirestore(tr));
+        resetUsers.forEach(u => saveUserToFirestore(u));
+        saveConfigToFirestore(DEFAULT_CONFIG);
+      }
     }
   };
 
@@ -427,6 +587,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
 
     setItems(prev => [newItem, ...prev]);
+    saveItemToFirestore(newItem);
   };
 
   const bulkAddItems = (newItemsData: Omit<TubularItem, 'id' | 'updatedAt' | 'qrCodeData' | 'inspectionHistory' | 'maintenanceLogs'>[]) => {
@@ -455,16 +616,19 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     });
 
     setItems(prev => [...newItems, ...prev]);
+    newItems.forEach(it => saveItemToFirestore(it));
   };
 
   const updateItem = (id: string, updates: Partial<TubularItem>) => {
     setItems(prev => prev.map(item => {
       if (item.id === id) {
-        return {
+        const updated = {
           ...item,
           ...updates,
           updatedAt: new Date().toISOString(),
         };
+        saveItemToFirestore(updated);
+        return updated;
       }
       return item;
     }));
@@ -481,12 +645,14 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           notes: `Batch status update to '${status}'. Notes: ${notes}`,
         } : null;
 
-        return {
+        const updated = {
           ...item,
           status,
           updatedAt: new Date().toISOString(),
           maintenanceLogs: newMaintLog ? [newMaintLog, ...item.maintenanceLogs] : item.maintenanceLogs,
         };
+        saveItemToFirestore(updated);
+        return updated;
       }
       return item;
     }));
@@ -515,13 +681,15 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           notes,
         };
 
-        return {
+        const updated = {
           ...item,
           projectOwner: newProjectOwner,
           wellChargeCode: wellChargeCode || item.wellChargeCode,
           ownershipHistory: [newRecord, ...(item.ownershipHistory || [])],
           updatedAt: new Date().toISOString(),
         };
+        saveItemToFirestore(updated);
+        return updated;
       }
       return item;
     }));
@@ -529,6 +697,9 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const deleteItem = (id: string) => {
     setItems(prev => prev.filter(item => item.id !== id));
+    if (!isOffline) {
+      deleteDoc(doc(db, 'items', id)).catch(err => console.error('Firestore deleteItem err:', err));
+    }
   };
 
   const addInspectionRecord = (itemId: string, record: Omit<InspectionRecord, 'id'>) => {
@@ -546,7 +717,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           newStatus = 'Quarantined / Damaged';
         }
 
-        return {
+        const updated = {
           ...item,
           status: newStatus,
           lastInspectionDate: record.date,
@@ -555,6 +726,8 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           inspectionHistory: [newRecord, ...item.inspectionHistory],
           updatedAt: new Date().toISOString(),
         };
+        saveItemToFirestore(updated);
+        return updated;
       }
       return item;
     }));
@@ -568,11 +741,13 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     setItems(prev => prev.map(item => {
       if (item.id === itemId) {
-        return {
+        const updated = {
           ...item,
           maintenanceLogs: [newLog, ...item.maintenanceLogs],
           updatedAt: new Date().toISOString(),
         };
+        saveItemToFirestore(updated);
+        return updated;
       }
       return item;
     }));
@@ -621,25 +796,28 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     setItems(prev => prev.map(item => {
       if (selectedItemIds.some(s => s.itemId === item.id)) {
-        return {
+        const updated = {
           ...item,
           currentLocation: 'In Transit (Supply Vessel)' as LocationType,
           rackLocation: `Onboard ${carrierName}`,
           updatedAt: new Date().toISOString(),
         };
+        saveItemToFirestore(updated);
+        return updated;
       }
       return item;
     }));
 
     setTransfers(prev => [newTransfer, ...prev]);
+    saveTransferToFirestore(newTransfer);
   };
 
   const validateSenderDispatch = (transferId: string, notes?: string) => {
     setTransfers(prev => prev.map(t => {
       if (t.id === transferId) {
-        return {
+        const updated = {
           ...t,
-          status: 'Dispatched (In Transit)',
+          status: 'Dispatched (In Transit)' as const,
           senderUserId: currentUser.id,
           senderName: currentUser.name,
           senderRole: currentUser.role,
@@ -647,6 +825,8 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           senderSignature: `${currentUser.name} (${currentUser.role} Stamp)`,
           notes: notes ? `${t.notes ? t.notes + ' | ' : ''}${notes}` : t.notes,
         };
+        saveTransferToFirestore(updated);
+        return updated;
       }
       return t;
     }));
@@ -665,7 +845,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     setTransfers(prev => prev.map(t => {
       if (t.id === transferId) {
-        return {
+        const updated = {
           ...t,
           status: newStatus,
           receiverUserId: currentUser.id,
@@ -683,6 +863,8 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             };
           }),
         };
+        saveTransferToFirestore(updated);
+        return updated;
       }
       return t;
     }));
@@ -691,7 +873,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const matchInTransfer = transfer.items.find(i => i.itemId === item.id);
       if (matchInTransfer) {
         const cond = itemConditions.find(c => c.itemId === item.id);
-        return {
+        const updated = {
           ...item,
           currentLocation: transfer.destinationLocation,
           rackLocation: transfer.destinationLocation.includes('Rig') ? 'Rig Catwalk / Setback' : 'Yard Receiving Bay',
@@ -699,6 +881,8 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           status: cond && cond.condition === 'Damaged / Reject' ? 'Quarantined / Damaged' : item.status,
           updatedAt: new Date().toISOString(),
         };
+        saveItemToFirestore(updated);
+        return updated;
       }
       return item;
     }));
