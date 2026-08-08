@@ -221,17 +221,9 @@ const MainAppContent: React.FC = () => {
         
         {activeNav === 'dashboard' && (
           <DashboardOverview
-            onOpenAlertsModal={() => setIsAlertsModalOpen(true)}
-            onOpenAddItem={() => {
-              setSelectedItemForEdit(null);
-              setIsAddModalOpen(true);
-            }}
-            onOpenTransferModal={() => {
-              setTransferModalItemIds([]);
-              setIsTransferModalOpen(true);
-            }}
-            onSelectItem={(item) => setSelectedItemForDrawer(item)}
-            onNavigateToView={(view) => setActiveNav(view as any)}
+            onNavigateTab={(tab) => setActiveNav(tab as any)}
+            onOpenAiAudit={() => setIsAiAuditModalOpen(true)}
+            onOpenAlerts={() => setIsAlertsModalOpen(true)}
           />
         )}
 

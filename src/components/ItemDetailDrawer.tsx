@@ -740,15 +740,16 @@ export const ItemDetailDrawer: React.FC<ItemDetailDrawerProps> = ({
                     <div key={rec.id} className="bg-white/5 border border-white/5 rounded-xl p-4 space-y-2">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-2 text-emerald-300 font-bold">
-                          <span>{rec.previousOwner}</span>
+                          <span>{rec.previousProjectOwner}</span>
                           <ArrowRightLeft className="w-3.5 h-3.5 text-gray-400" />
-                          <span className="text-amber-400">{rec.newOwner}</span>
+                          <span className="text-amber-400">{rec.newProjectOwner}</span>
                         </div>
                         <span className="text-[10px] text-gray-400 font-mono">{rec.transferDate}</span>
                       </div>
 
                       <div className="text-[11px] text-gray-300 grid grid-cols-2 gap-2 pt-1 border-t border-white/5">
-                        <p><strong>Reason:</strong> {rec.reason}</p>
+                        <p><strong>Reason:</strong> {rec.transferReason}</p>
+
                         <p><strong>AFE Charge Code:</strong> <span className="font-mono text-amber-300">{rec.wellChargeCode}</span></p>
                         <p><strong>Ref Doc #:</strong> <span className="font-mono text-cyan-300">{rec.referenceDocNumber || 'N/A'}</span></p>
                         <p><strong>Approved By:</strong> {rec.approvedBy}</p>
