@@ -15,6 +15,10 @@ import { MobileScannerModal } from './components/MobileScannerModal';
 import { AiAuditModal } from './components/AiAuditModal';
 import { AuditReportView } from './components/AuditReportView';
 import { AdminPanel } from './components/AdminPanel';
+import { DrillingEngineerHub } from './components/DrillingEngineerHub';
+import { SupplyBaseHub } from './components/SupplyBaseHub';
+import { RigSiteHub } from './components/RigSiteHub';
+import { CheckAndBalanceHub } from './components/CheckAndBalanceHub';
 import { AuthGate } from './components/AuthGate';
 import { TubularItem } from './types/drilling';
 import { 
@@ -31,7 +35,11 @@ import {
   Wifi,
   WifiOff,
   RefreshCw,
-  Search
+  Search,
+  Calculator,
+  Building2,
+  Anchor,
+  Scale
 } from 'lucide-react';
 
 const MainAppContent: React.FC = () => {
@@ -50,7 +58,9 @@ const MainAppContent: React.FC = () => {
     return <AuthGate />;
   }
 
-  const [activeNav, setActiveNav] = useState<'dashboard' | 'inventory' | 'holeSection' | 'surplus' | 'movement' | 'audit' | 'admin'>('dashboard');
+  const [activeNav, setActiveNav] = useState<
+    'dashboard' | 'inventory' | 'drillingEngineer' | 'supplyBaseMatco' | 'rigSiteMatco' | 'checkAndBalance' | 'holeSection' | 'surplus' | 'movement' | 'audit' | 'admin'
+  >('dashboard');
 
   const pendingApprovalsCount = allUsers.filter(u => u.status === 'Pending Email Verification' || u.status === 'Pending Admin Approval').length;
 
@@ -124,6 +134,54 @@ const MainAppContent: React.FC = () => {
               <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono ${activeNav === 'inventory' ? 'bg-black/20 text-black' : 'bg-white/10 text-gray-300'}`}>
                 {items.length}
               </span>
+            </button>
+
+            <button
+              onClick={() => setActiveNav('drillingEngineer')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 ${
+                activeNav === 'drillingEngineer'
+                  ? 'bg-amber-500 text-black shadow-md'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Calculator className="w-4 h-4 text-amber-400" />
+              <span>Drilling Engineer Hub</span>
+            </button>
+
+            <button
+              onClick={() => setActiveNav('supplyBaseMatco')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 ${
+                activeNav === 'supplyBaseMatco'
+                  ? 'bg-amber-500 text-black shadow-md'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Building2 className="w-4 h-4 text-emerald-400" />
+              <span>Supply Base Matco</span>
+            </button>
+
+            <button
+              onClick={() => setActiveNav('rigSiteMatco')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 ${
+                activeNav === 'rigSiteMatco'
+                  ? 'bg-amber-500 text-black shadow-md'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Anchor className="w-4 h-4 text-cyan-400" />
+              <span>Rig Site Matco</span>
+            </button>
+
+            <button
+              onClick={() => setActiveNav('checkAndBalance')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 ${
+                activeNav === 'checkAndBalance'
+                  ? 'bg-amber-500 text-black shadow-md'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <ShieldCheck className="w-4 h-4 text-purple-400" />
+              <span>Check & Balance Matrix</span>
             </button>
 
             <button
@@ -238,6 +296,22 @@ const MainAppContent: React.FC = () => {
             onSelectItem={(item) => setSelectedItemForDrawer(item)}
             onOpenTransferModalWithItems={handleOpenTransferModalWithItems}
           />
+        )}
+
+        {activeNav === 'drillingEngineer' && (
+          <DrillingEngineerHub />
+        )}
+
+        {activeNav === 'supplyBaseMatco' && (
+          <SupplyBaseHub />
+        )}
+
+        {activeNav === 'rigSiteMatco' && (
+          <RigSiteHub />
+        )}
+
+        {activeNav === 'checkAndBalance' && (
+          <CheckAndBalanceHub />
         )}
 
         {activeNav === 'holeSection' && (

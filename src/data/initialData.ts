@@ -1,6 +1,16 @@
-import { TubularItem, MaterialTransferTicket, UserProfile } from '../types/drilling';
+import { TubularItem, MaterialTransferTicket, UserProfile, SurplusBookingRequest, MaterialRequisitionForm, RigMaterialCallout, RigBackloadList } from '../types/drilling';
 
 export const INITIAL_USERS: UserProfile[] = [
+  {
+    id: 'usr-main-admin',
+    name: 'Ammar Thaqif (Main Admin)',
+    role: 'System Administrator',
+    department: 'Corporate IT & Admin Controls',
+    location: 'Main Supply Base Yard',
+    email: 'ammarthaqif.ar@gmail.com',
+    status: 'Active Approved',
+    isCorporateVerified: true,
+  },
   {
     id: 'usr-1',
     name: 'Sarah Jenkins',
@@ -8,6 +18,7 @@ export const INITIAL_USERS: UserProfile[] = [
     department: 'Drilling & Wells Engineering',
     location: 'Main Supply Base Yard',
     email: 's.jenkins@apexdrilling.com',
+    status: 'Active Approved',
   },
   {
     id: 'usr-2',
@@ -16,6 +27,7 @@ export const INITIAL_USERS: UserProfile[] = [
     department: 'Supply Chain & Marine Logistics',
     location: 'Main Supply Base Yard',
     email: 'c.mendoza@apexdrilling.com',
+    status: 'Active Approved',
   },
   {
     id: 'usr-3',
@@ -24,6 +36,7 @@ export const INITIAL_USERS: UserProfile[] = [
     department: 'Materials & Base Yard Operations',
     location: 'Main Supply Base Yard',
     email: 'a.almansoor@apexdrilling.com',
+    status: 'Active Approved',
   },
   {
     id: 'usr-4',
@@ -32,6 +45,7 @@ export const INITIAL_USERS: UserProfile[] = [
     department: 'Rig Site Operations',
     location: 'Offshore Rig Alpha',
     email: 'd.oconnor@apexdrilling.com',
+    status: 'Active Approved',
   },
   {
     id: 'usr-5',
@@ -40,6 +54,7 @@ export const INITIAL_USERS: UserProfile[] = [
     department: 'Quality Assurance & Inspection',
     location: 'Machine Shop & Testing Facility',
     email: 'e.rostova@apexdrilling.com',
+    status: 'Active Approved',
   },
   {
     id: 'usr-6',
@@ -48,6 +63,7 @@ export const INITIAL_USERS: UserProfile[] = [
     department: 'Corporate Audit & Compliance',
     location: 'Main Supply Base Yard',
     email: 'm.vance@apexdrilling.com',
+    status: 'Active Approved',
   },
 ];
 
@@ -698,3 +714,142 @@ export const INITIAL_TRANSFERS: MaterialTransferTicket[] = [
     ],
   },
 ];
+
+export const INITIAL_SURPLUS_BOOKINGS: SurplusBookingRequest[] = [
+  {
+    id: 'sbr-101',
+    createdAt: '2026-08-05T10:00:00Z',
+    drillingEngineerId: 'usr-1',
+    drillingEngineerName: 'Sarah Jenkins (Drilling Engineer)',
+    targetProject: 'Project Deepwater Alpha - Well Alpha-06',
+    holeSection: '17-1/2" Intermediate',
+    afeChargeCode: 'AFE-2026-ALPHA-03',
+    items: [
+      {
+        itemId: 'item-3',
+        tagNumber: 'CSG-1338-042',
+        name: '13-3/8" Intermediate Casing 68 lb/ft L-80 VAM TOP',
+        quantityJointsRequested: 40,
+        availableYardJoints: 102,
+      },
+    ],
+    status: 'Pending Cost Controller Validation',
+    flaggedForInspection: true,
+    flaggedForRetreading: false,
+  },
+  {
+    id: 'sbr-102',
+    createdAt: '2026-07-20T14:30:00Z',
+    drillingEngineerId: 'usr-1',
+    drillingEngineerName: 'Sarah Jenkins (Drilling Engineer)',
+    targetProject: 'Project Deepwater Alpha - Well Alpha-05',
+    holeSection: '12-1/4" Main Hole',
+    afeChargeCode: 'AFE-2026-ALPHA-01',
+    items: [
+      {
+        itemId: 'item-6',
+        tagNumber: 'DP-500-S135-08',
+        name: '5" Drill Pipe 19.5 lb/ft S-135 NC50 (IF) Range 2',
+        quantityJointsRequested: 100,
+        availableYardJoints: 380,
+      },
+    ],
+    status: 'Approved (Ownership Transferred)',
+    costControllerValidatedAt: '2026-07-21T09:00:00Z',
+    costControllerName: 'Michael Chen (Cost Control Lead)',
+    costControllerNotes: 'Validated against AFE-2026-ALPHA-01 budget allowance.',
+    mmFocalValidatedAt: '2026-07-21T11:30:00Z',
+    mmFocalName: 'Farah Anuar (Material Management Focal)',
+    mmFocalNotes: 'Confirmed surplus availability and project transfer compatibility.',
+    supplyBaseFocalApprovedAt: '2026-07-22T08:15:00Z',
+    supplyBaseFocalName: 'Ahmad Al-Mansoor (Supply Base Focal)',
+    supplyBaseFocalNotes: 'Ownership transferred to Well Alpha-05. Flagged for NDT recertification.',
+    flaggedForInspection: true,
+    flaggedForRetreading: true,
+    poNumber: 'PO-SERVICE-2026-881',
+    poIssuedAt: '2026-07-23T10:00:00Z',
+    vendorName: 'Tenaris Field & Inspection Services',
+    estimatedServiceCostUsd: 14500,
+  },
+];
+
+export const INITIAL_REQUISITIONS: MaterialRequisitionForm[] = [
+  {
+    id: 'msrf-001',
+    reqNumber: 'MSRF-2026-08-01',
+    createdDate: '2026-08-04T11:00:00Z',
+    drillingEngineerName: 'Sarah Jenkins',
+    projectName: 'Project Deepwater Alpha',
+    afeChargeCode: 'AFE-2026-ALPHA-03',
+    holeSection: '12-1/4" Main Hole',
+    requestType: 'Surplus Booking & Service',
+    casingSpecs: {
+      outerDiameter: '9 5/8"',
+      weightLbFt: '53.5 lb/ft',
+      grade: 'P-110 EC',
+      connectionType: 'TenarisHydril Wedge 563',
+      requiredJoints: 180,
+      targetLengthFt: 7200,
+      safetyFactorPct: 10,
+    },
+    requiredVendorServices: ['Full Length NDT Inspection', 'Special Drift Test'],
+    status: 'PO Issued',
+    notes: 'Requisition generated for upcoming 12-1/4" production string.',
+  },
+];
+
+export const INITIAL_RIG_CALLOUTS: RigMaterialCallout[] = [
+  {
+    id: 'rmc-001',
+    requestNumber: 'RMC-2026-08-012',
+    createdDate: '2026-08-06T08:00:00Z',
+    rigLocation: 'Offshore Rig Alpha',
+    requestedBy: 'David O\'Connor (Rig Toolpusher)',
+    requiredDeliveryDate: '2026-08-09',
+    holeSection: '17-1/2" Intermediate',
+    urgency: 'Urgent Drilling Callout',
+    items: [
+      {
+        tagNumber: 'XO-1338-958',
+        description: '13-3/8" VAM TOP x 9-5/8" Crossover Sub',
+        category: 'Crossover Sub',
+        quantityJoints: 2,
+        notes: 'Required for casing string crossover configuration.',
+      },
+      {
+        tagNumber: 'CENT-1338-BOW',
+        description: '13-3/8" Bow Spring Centralizers',
+        category: 'Centralizer & Stop Collar',
+        quantityJoints: 60,
+        notes: 'Centralizers for intermediate string.',
+      },
+    ],
+    status: 'Staged for Vessel Loading',
+    preparedBySupplyBaseMatco: 'Ahmad Al-Mansoor',
+  },
+];
+
+export const INITIAL_RIG_BACKLOADS: RigBackloadList[] = [
+  {
+    id: 'rbl-001',
+    manifestNumber: 'RBL-2026-08-005',
+    createdDate: '2026-08-03T16:00:00Z',
+    rigLocation: 'Offshore Rig Alpha',
+    preparedBy: 'David O\'Connor (Rig Toolpusher)',
+    vesselName: 'MV Crest Sentinel (Voyage 103)',
+    items: [
+      {
+        itemId: 'item-3',
+        tagNumber: 'CSG-1338-042',
+        name: '13-3/8" Intermediate Casing 68 lb/ft L-80 VAM TOP',
+        quantityJoints: 102,
+        conditionOnRig: 'Used - Good',
+        reasonForBackload: 'Campaign Finished',
+      },
+    ],
+    status: 'Received at Supply Base Quay',
+    receivedBySupplyBaseMatco: 'Ahmad Al-Mansoor',
+    quaysideInspectionNotes: 'Verified 102 joints landed on quay. Threads inspected and greased.',
+  },
+];
+

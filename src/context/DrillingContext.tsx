@@ -12,9 +12,21 @@ import {
   EquipmentCondition,
   MaintenanceStatus,
   InspectionRecord,
-  MaintenanceLog
+  MaintenanceLog,
+  SurplusBookingRequest,
+  MaterialRequisitionForm,
+  RigMaterialCallout,
+  RigBackloadList
 } from '../types/drilling';
-import { INITIAL_ITEMS, INITIAL_TRANSFERS, INITIAL_USERS } from '../data/initialData';
+import { 
+  INITIAL_ITEMS, 
+  INITIAL_TRANSFERS, 
+  INITIAL_USERS,
+  INITIAL_SURPLUS_BOOKINGS,
+  INITIAL_REQUISITIONS,
+  INITIAL_RIG_CALLOUTS,
+  INITIAL_RIG_BACKLOADS
+} from '../data/initialData';
 import { 
   embeddedDb, 
   VerificationEmailRecord, 
@@ -97,6 +109,22 @@ interface DrillingContextType {
     itemConditions: { itemId: string; condition: EquipmentCondition; discrepancyNote?: string }[],
     notes?: string
   ) => void;
+
+  // Drilling Engineer & Workflow Extensions
+  surplusBookings: SurplusBookingRequest[];
+  createSurplusBooking: (req: Omit<SurplusBookingRequest, 'id' | 'createdAt' | 'status'>) => void;
+  validateSurplusBookingStage: (bookingId: string, stage: 'costController' | 'mmFocal' | 'supplyBaseFocal', notes: string) => void;
+  flagSurplusForVendorServiceAndPO: (bookingId: string, serviceType: string, vendorName: string, estimatedCostUsd: number) => void;
+  
+  materialRequisitions: MaterialRequisitionForm[];
+  createMaterialRequisition: (form: Omit<MaterialRequisitionForm, 'id'>) => void;
+  
+  rigCallouts: RigMaterialCallout[];
+  createRigCallout: (callout: Omit<RigMaterialCallout, 'id'>) => void;
+  
+  rigBackloads: RigBackloadList[];
+  createRigBackload: (backload: Omit<RigBackloadList, 'id'>) => void;
+  receiveRigBackloadAtSupplyBase: (manifestId: string, inspectionNotes: string) => void;
 
   // Filters & Views
   searchQuery: string;
@@ -257,6 +285,150 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [transfers, setTransfers] = useState<MaterialTransferTicket[]>(() => {
     return embeddedDb.loadTransfers() || INITIAL_TRANSFERS;
   });
+
+  // Workflow states
+  const [surplusBookings, setSurplusBookings] = useState<SurplusBookingRequest[]>(INITIAL_SURPLUS_BOOKINGS);
+  const [materialRequisitions, setMaterialRequisitions] = useState<MaterialRequisitionForm[]>(INITIAL_REQUISITIONS);
+  const [rigCallouts, setRigCallouts] = useState<RigMaterialCallout[]>(INITIAL_RIG_CALLOUTS);
+  const [rigBackloads, setRigBackloads] = useState<RigBackloadList[]>(INITIAL_RIG_BACKLOADS);
+
+  // Workflow Handlers
+  const createSurplusBooking = (reqData: Omit<SurplusBookingRequest, 'id' | 'createdAt' | 'status'>) => {
+    const newBooking: SurplusBookingRequest = {
+      ...reqData,
+      id: `sbr-${Math.floor(100 + Math.random() * 900)}`,
+      createdAt: new Date().toISOString(),
+      status: 'Pending Cost Controller Validation',
+    };
+    setSurplusBookings(prev => [newBooking, ...prev]);
+  };
+
+  const validateSurplusBookingStage = (
+    bookingId: string, 
+    stage: 'costController' | 'mmFocal' | 'supplyBaseFocal', 
+    notes: string
+  ) => {
+    setSurplusBookings(prev => prev.map(booking => {
+      if (booking.id !== bookingId) return booking;
+
+      const now = new Date().toISOString();
+      if (stage === 'costController') {
+        return {
+          ...booking,
+          costControllerValidatedAt: now,
+          costControllerName: `${currentUser.name} (${currentUser.role})`,
+          costControllerNotes: notes,
+          status: 'Pending Material Management Focal Review',
+        };
+      } else if (stage === 'mmFocal') {
+        return {
+          ...booking,
+          mmFocalValidatedAt: now,
+          mmFocalName: `${currentUser.name} (${currentUser.role})`,
+          mmFocalNotes: notes,
+          status: 'Pending Supply Base Focal Approval',
+        };
+      } else if (stage === 'supplyBaseFocal') {
+        // Transfer ownership of booked items to engineer's project
+        booking.items.forEach(it => {
+          transferOwnership(
+            it.itemId,
+            booking.targetProject,
+            'Surplus Booking Approval & Project Transfer',
+            booking.afeChargeCode,
+            booking.id,
+            'Transferred ownership from Central Surplus Pool to Active Campaign.'
+          );
+        });
+
+        return {
+          ...booking,
+          supplyBaseFocalApprovedAt: now,
+          supplyBaseFocalName: `${currentUser.name} (${currentUser.role})`,
+          supplyBaseFocalNotes: notes,
+          status: 'Approved (Ownership Transferred)',
+        };
+      }
+      return booking;
+    }));
+  };
+
+  const flagSurplusForVendorServiceAndPO = (
+    bookingId: string, 
+    serviceType: string, 
+    vendorName: string, 
+    estimatedCostUsd: number
+  ) => {
+    setSurplusBookings(prev => prev.map(booking => {
+      if (booking.id !== bookingId) return booking;
+
+      const poNum = `PO-SERVICE-2026-${Math.floor(100 + Math.random() * 900)}`;
+      return {
+        ...booking,
+        poNumber: poNum,
+        poIssuedAt: new Date().toISOString().slice(0, 10),
+        vendorName,
+        estimatedServiceCostUsd: estimatedCostUsd,
+        flaggedForInspection: serviceType.includes('Inspection') || serviceType.includes('Recert'),
+        flaggedForRetreading: serviceType.includes('Retreading') || serviceType.includes('Thread'),
+      };
+    }));
+  };
+
+  const createMaterialRequisition = (formData: Omit<MaterialRequisitionForm, 'id'>) => {
+    const newForm: MaterialRequisitionForm = {
+      ...formData,
+      id: `msrf-${Math.floor(100 + Math.random() * 900)}`,
+    };
+    setMaterialRequisitions(prev => [newForm, ...prev]);
+  };
+
+  const createRigCallout = (calloutData: Omit<RigMaterialCallout, 'id'>) => {
+    const newCallout: RigMaterialCallout = {
+      ...calloutData,
+      id: `rmc-${Math.floor(100 + Math.random() * 900)}`,
+    };
+    setRigCallouts(prev => [newCallout, ...prev]);
+  };
+
+  const createRigBackload = (backloadData: Omit<RigBackloadList, 'id'>) => {
+    const newBackload: RigBackloadList = {
+      ...backloadData,
+      id: `rbl-${Math.floor(100 + Math.random() * 900)}`,
+    };
+    setRigBackloads(prev => [newBackload, ...prev]);
+
+    // Update items location to transit
+    backloadData.items.forEach(it => {
+      updateItem(it.itemId, {
+        currentLocation: 'In Transit (Supply Vessel)',
+        rackLocation: 'Vessel Cargo Deck',
+        status: it.conditionOnRig === 'Damaged / Reject' ? 'Quarantined / Damaged' : 'Due for Inspection'
+      });
+    });
+  };
+
+  const receiveRigBackloadAtSupplyBase = (manifestId: string, inspectionNotes: string) => {
+    setRigBackloads(prev => prev.map(rbl => {
+      if (rbl.id !== manifestId) return rbl;
+
+      // Update item locations back to Main Supply Base Yard
+      rbl.items.forEach(it => {
+        updateItem(it.itemId, {
+          currentLocation: 'Main Supply Base Yard',
+          rackLocation: 'Quayside Backload Holding Bay',
+          status: 'Due for Inspection'
+        });
+      });
+
+      return {
+        ...rbl,
+        status: 'Reconciled & Racked',
+        receivedBySupplyBaseMatco: `${currentUser.name} (${currentUser.role})`,
+        quaysideInspectionNotes: inspectionNotes,
+      };
+    }));
+  };
 
   // Offline state & queue
   const [isOffline, setIsOffline] = useState<boolean>(false);
@@ -1289,6 +1461,17 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       createTransfer,
       validateSenderDispatch,
       validateReceiverArrival,
+      surplusBookings,
+      createSurplusBooking,
+      validateSurplusBookingStage,
+      flagSurplusForVendorServiceAndPO,
+      materialRequisitions,
+      createMaterialRequisition,
+      rigCallouts,
+      createRigCallout,
+      rigBackloads,
+      createRigBackload,
+      receiveRigBackloadAtSupplyBase,
       searchQuery,
       setSearchQuery,
       selectedHoleSection,

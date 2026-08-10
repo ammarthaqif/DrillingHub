@@ -215,3 +215,122 @@ export interface AlertSummary {
   surplusAlertCount: number; // yard sitting >= 6 months needing re-inspection
   pendingTransferCount: number; // transfers awaiting receipt verification
 }
+
+// Workflow Types for Drilling Engineer & Materials Coordinator
+
+export type SurplusBookingStatus = 
+  | 'Pending Cost Controller Validation'
+  | 'Pending Material Management Focal Review'
+  | 'Pending Supply Base Focal Approval'
+  | 'Approved (Ownership Transferred)'
+  | 'Rejected';
+
+export interface SurplusBookingItem {
+  itemId: string;
+  tagNumber: string;
+  name: string;
+  quantityJointsRequested: number;
+  availableYardJoints: number;
+}
+
+export interface SurplusBookingRequest {
+  id: string; // e.g. SBR-2026-001
+  createdAt: string;
+  drillingEngineerId: string;
+  drillingEngineerName: string;
+  targetProject: string;
+  holeSection: HoleSection;
+  afeChargeCode: string;
+  items: SurplusBookingItem[];
+  status: SurplusBookingStatus;
+  
+  // Stage 1: Cost Controller
+  costControllerValidatedAt?: string;
+  costControllerName?: string;
+  costControllerNotes?: string;
+  
+  // Stage 2: Material Management Focal
+  mmFocalValidatedAt?: string;
+  mmFocalName?: string;
+  mmFocalNotes?: string;
+  
+  // Stage 3: Supply Base Focal
+  supplyBaseFocalApprovedAt?: string;
+  supplyBaseFocalName?: string;
+  supplyBaseFocalNotes?: string;
+  
+  // Vendor Services & PO Issuance Flag
+  flaggedForInspection?: boolean;
+  flaggedForRetreading?: boolean;
+  flaggedForOtherServices?: string;
+  poNumber?: string;
+  poIssuedAt?: string;
+  vendorName?: string;
+  estimatedServiceCostUsd?: number;
+}
+
+export interface MaterialRequisitionForm {
+  id: string; // e.g. MSRF-2026-104
+  reqNumber: string;
+  createdDate: string;
+  drillingEngineerName: string;
+  projectName: string;
+  afeChargeCode: string;
+  holeSection: HoleSection;
+  requestType: 'Surplus Booking & Service' | 'New Order Material Purchase' | 'Combined Requisition';
+  casingSpecs: {
+    outerDiameter: string;
+    weightLbFt: string;
+    grade: string;
+    connectionType: string;
+    requiredJoints: number;
+    targetLengthFt: number;
+    safetyFactorPct: number;
+  };
+  requiredVendorServices?: string[];
+  status: 'Draft' | 'Submitted for Approval' | 'Approved' | 'PO Issued' | 'Fulfilled';
+  notes?: string;
+}
+
+export interface RigMaterialCallout {
+  id: string; // e.g. RMC-2026-088
+  requestNumber: string;
+  createdDate: string;
+  rigLocation: LocationType;
+  requestedBy: string; // Rig Matco / Toolpusher
+  requiredDeliveryDate: string;
+  holeSection: HoleSection;
+  urgency: 'Routine' | 'Urgent Drilling Callout' | 'Rig Stop Emergency';
+  items: {
+    tagNumber?: string;
+    description: string;
+    category: ItemCategory;
+    quantityJoints: number;
+    notes?: string;
+  }[];
+  status: 'Submitted to Supply Base' | 'Staged for Vessel Loading' | 'Dispatched' | 'Received on Rig';
+  preparedBySupplyBaseMatco?: string;
+}
+
+export interface RigBackloadItem {
+  itemId?: string;
+  tagNumber: string;
+  name: string;
+  quantityJoints: number;
+  conditionOnRig: EquipmentCondition;
+  reasonForBackload: 'Campaign Finished' | 'Damaged Thread / BHA' | 'Inspection Due' | 'Excess Stock';
+}
+
+export interface RigBackloadList {
+  id: string; // e.g. RBL-2026-012
+  manifestNumber: string;
+  createdDate: string;
+  rigLocation: LocationType;
+  preparedBy: string; // Rig Toolpusher / Matco
+  vesselName: string;
+  items: RigBackloadItem[];
+  status: 'Dispatched from Rig' | 'Received at Supply Base Quay' | 'Reconciled & Racked';
+  receivedBySupplyBaseMatco?: string;
+  quaysideInspectionNotes?: string;
+}
+
