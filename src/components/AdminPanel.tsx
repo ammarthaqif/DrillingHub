@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useDrilling } from '../context/DrillingContext';
-import { UserRole, UserAccountStatus, UserProfile } from '../types/drilling';
+import { UserRole, UserAccountStatus, UserProfile, LocationType } from '../types/drilling';
 import { DropdownCategoryKey } from '../db/embeddedDb';
 import { 
   Users, 
@@ -39,7 +39,10 @@ import {
   Truck,
   Tag,
   ChevronRight,
-  ListFilter
+  ListFilter,
+  Pencil,
+  UserX,
+  UserCheck
 } from 'lucide-react';
 
 export const AdminPanel: React.FC = () => {
@@ -49,6 +52,9 @@ export const AdminPanel: React.FC = () => {
     registerUser, 
     updateUserStatus, 
     updateUserRole, 
+    updateUser,
+    deleteUser,
+    revokeUserAccess,
     resendVerificationEmail, 
     verifyEmailWithToken,
     emailOutbox,
@@ -84,9 +90,89 @@ export const AdminPanel: React.FC = () => {
   const [regEmail, setRegEmail] = useState('');
   const [regRole, setRegRole] = useState<UserRole>('Drilling Engineer');
   const [regDepartment, setRegDepartment] = useState('Drilling Operations');
-  const [regLocation, setRegLocation] = useState('Main Supply Base Yard' as any);
+  const [regLocation, setRegLocation] = useState<LocationType>('Main Supply Base Yard');
+  const [regStatusOption, setRegStatusOption] = useState<UserAccountStatus>('Active Approved');
   const [regError, setRegError] = useState<string | null>(null);
   const [regSuccess, setRegSuccess] = useState<string | null>(null);
+
+  // Edit User Modal State
+  const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editRole, setEditRole] = useState<UserRole>('Drilling Engineer');
+  const [editDepartment, setEditDepartment] = useState('');
+  const [editLocation, setEditLocation] = useState<LocationType>('Main Supply Base Yard');
+  const [editStatus, setEditStatus] = useState<UserAccountStatus>('Active Approved');
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSuccess, setEditSuccess] = useState<string | null>(null);
+
+  // Delete User Modal State
+  const [deletingUser, setDeletingUser] = useState<UserProfile | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteSuccess, setDeleteSuccess] = useState<string | null>(null);
+
+  // Open Edit User Modal
+  const handleOpenEditUser = (user: UserProfile) => {
+    setEditingUser(user);
+    setEditName(user.name);
+    setEditEmail(user.email);
+    setEditRole(user.role);
+    setEditDepartment(user.department);
+    setEditLocation(user.location || 'Main Supply Base Yard');
+    setEditStatus(user.status || 'Active Approved');
+    setEditError(null);
+    setEditSuccess(null);
+  };
+
+  // Submit Edit User
+  const handleSaveEditUser = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    setEditError(null);
+    setEditSuccess(null);
+
+    if (!editName.trim() || !editEmail.trim()) {
+      setEditError('Please fill in name and email address.');
+      return;
+    }
+
+    const res = updateUser(editingUser.id, {
+      name: editName.trim(),
+      email: editEmail.trim(),
+      role: editRole,
+      department: editDepartment.trim(),
+      location: editLocation,
+      status: editStatus,
+    });
+
+    if (!res.success) {
+      setEditError(res.message);
+    } else {
+      setEditSuccess(res.message);
+      setTimeout(() => {
+        setEditingUser(null);
+        setEditSuccess(null);
+      }, 1200);
+    }
+  };
+
+  // Confirm Delete User
+  const handleConfirmDeleteUser = () => {
+    if (!deletingUser) return;
+    setDeleteError(null);
+    setDeleteSuccess(null);
+
+    const res = deleteUser(deletingUser.id);
+    if (!res.success) {
+      setDeleteError(res.message);
+    } else {
+      setDeleteSuccess(res.message);
+      setTimeout(() => {
+        setDeletingUser(null);
+        setDeleteSuccess(null);
+      }, 1200);
+    }
+  };
 
   // Email Domain Input
   const [newDomain, setNewDomain] = useState('');
@@ -128,18 +214,19 @@ export const AdminPanel: React.FC = () => {
       role: regRole,
       department: regDepartment,
       location: regLocation,
+      initialStatus: regStatusOption,
     });
 
     if (!result.success) {
       setRegError(result.message);
     } else {
-      setRegSuccess(`Corporate registration initiated for ${regEmail}. Validation email token generated & sent!`);
+      setRegSuccess(result.message);
       setRegName('');
       setRegEmail('');
       setTimeout(() => {
         setShowRegisterModal(false);
         setRegSuccess(null);
-      }, 2000);
+      }, 1500);
     }
   };
 
@@ -416,49 +503,57 @@ export const AdminPanel: React.FC = () => {
                         </td>
 
                         <td className="p-3.5 text-right space-x-1.5 whitespace-nowrap">
-                          {/* Quick Actions */}
+                          {/* Edit User Button */}
+                          <button
+                            onClick={() => handleOpenEditUser(user)}
+                            className="px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 border border-amber-500/30 text-[11px] font-bold transition inline-flex items-center space-x-1"
+                            title="Edit User Profile & Role"
+                          >
+                            <Pencil className="w-3 h-3" />
+                            <span>Edit</span>
+                          </button>
+
+                          {/* Simulate Verify Button */}
                           {isPendingVerify && user.verificationToken && (
                             <button
                               onClick={() => verifyEmailWithToken(user.verificationToken!)}
-                              className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/40 text-[11px] font-bold transition"
+                              className="px-2 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/40 text-[10px] font-bold transition"
                               title="Simulate user clicking email validation link"
                             >
-                              Simulate Verify Email
+                              Verify
                             </button>
                           )}
 
-                          {isPendingApprove && (
-                            <button
-                              onClick={() => updateUserStatus(user.id, 'Active Approved')}
-                              className="px-2.5 py-1 rounded-lg bg-cyan-500 text-black hover:bg-cyan-400 text-[11px] font-bold transition"
-                            >
-                              Approve Access
-                            </button>
-                          )}
-
-                          <button
-                            onClick={() => resendVerificationEmail(user.id)}
-                            className="px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 text-[10px] font-medium transition"
-                            title="Resend corporate validation email"
-                          >
-                            Resend Email
-                          </button>
-
+                          {/* Revoke / Suspend Access Button */}
                           {isApproved ? (
                             <button
-                              onClick={() => updateUserStatus(user.id, 'Suspended')}
-                              className="px-2 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-[10px] font-medium transition"
+                              onClick={() => revokeUserAccess(user.id)}
+                              className="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[11px] font-bold transition inline-flex items-center space-x-1"
+                              title="Revoke / Suspend User Access"
                             >
-                              Suspend
+                              <Lock className="w-3 h-3" />
+                              <span>Revoke</span>
                             </button>
                           ) : (
                             <button
                               onClick={() => updateUserStatus(user.id, 'Active Approved')}
-                              className="px-2 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-[10px] font-medium transition"
+                              className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[11px] font-bold transition inline-flex items-center space-x-1"
+                              title="Approve / Activate Access"
                             >
-                              Set Active
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>Set Active</span>
                             </button>
                           )}
+
+                          {/* Delete User Button */}
+                          <button
+                            onClick={() => setDeletingUser(user)}
+                            className="px-2 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-[11px] font-bold transition inline-flex items-center space-x-1"
+                            title="Permanently remove user from database"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>Delete</span>
+                          </button>
                         </td>
                       </tr>
                     );
@@ -1112,13 +1207,9 @@ export const AdminPanel: React.FC = () => {
                     onChange={e => setRegRole(e.target.value as UserRole)}
                     className="w-full bg-white/5 border border-white/10 rounded-xl p-2.5 text-white focus:outline-none focus:border-amber-500"
                   >
-                    <option value="Drilling Engineer" className="bg-[#141417]">Drilling Engineer</option>
-                    <option value="System Administrator" className="bg-[#141417]">System Administrator</option>
-                    <option value="Logistics Coordinator" className="bg-[#141417]">Logistics Coordinator</option>
-                    <option value="Materials Coordinator (Supply Base)" className="bg-[#141417]">Materials Coordinator</option>
-                    <option value="Rig Toolpusher / Materials Specialist" className="bg-[#141417]">Rig Toolpusher</option>
-                    <option value="QA/QC Inspector" className="bg-[#141417]">QA/QC Inspector</option>
-                    <option value="Auditor / Management" className="bg-[#141417]">Auditor / Management</option>
+                    {availableRoles.map(role => (
+                      <option key={role} value={role} className="bg-[#141417]">{role}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -1130,6 +1221,34 @@ export const AdminPanel: React.FC = () => {
                     onChange={e => setRegDepartment(e.target.value)}
                     className="w-full bg-white/5 border border-white/10 rounded-xl p-2.5 text-white focus:outline-none focus:border-amber-500"
                   />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-gray-400 mb-1 font-semibold">Primary Location</label>
+                  <select
+                    value={regLocation}
+                    onChange={e => setRegLocation(e.target.value as LocationType)}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl p-2.5 text-white focus:outline-none focus:border-amber-500"
+                  >
+                    {availableLocations.map(loc => (
+                      <option key={loc} value={loc} className="bg-[#141417]">{loc}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-gray-400 mb-1 font-semibold">Activation Strategy</label>
+                  <select
+                    value={regStatusOption}
+                    onChange={e => setRegStatusOption(e.target.value as UserAccountStatus)}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl p-2.5 text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="Active Approved" className="bg-[#141417]">Instant Active Approved</option>
+                    <option value="Pending Email Verification" className="bg-[#141417]">Send Email Verification Token</option>
+                    <option value="Pending Admin Approval" className="bg-[#141417]">Pending Admin Approval</option>
+                  </select>
                 </div>
               </div>
 
@@ -1145,11 +1264,196 @@ export const AdminPanel: React.FC = () => {
                   type="submit"
                   className="px-5 py-2.5 rounded-xl bg-amber-500 text-black font-bold hover:bg-amber-400 transition"
                 >
-                  Register & Send Email Token
+                  Register User
                 </button>
               </div>
 
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT USER MODAL */}
+      {editingUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="bg-[#111114] border border-white/10 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden text-xs text-gray-200">
+            <div className="p-5 border-b border-white/10 flex items-center justify-between bg-white/5">
+              <div className="flex items-center space-x-2">
+                <Pencil className="w-5 h-5 text-amber-400" />
+                <h3 className="font-bold text-white text-base">Edit User Profile & Account Settings</h3>
+              </div>
+              <button onClick={() => setEditingUser(null)} className="text-gray-400 hover:text-white">
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditUser} className="p-6 space-y-4">
+              {editError && (
+                <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-300 flex items-center space-x-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+                  <span>{editError}</span>
+                </div>
+              )}
+
+              {editSuccess && (
+                <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-300 flex items-center space-x-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                  <span>{editSuccess}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-gray-400 mb-1 font-semibold">Full User Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={editName}
+                  onChange={e => setEditName(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl p-2.5 text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-gray-400 mb-1 font-semibold">Corporate Email Address *</label>
+                <input
+                  type="email"
+                  required
+                  value={editEmail}
+                  onChange={e => setEditEmail(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl p-2.5 text-amber-300 font-mono focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-gray-400 mb-1 font-semibold">Assigned Role</label>
+                  <select
+                    value={editRole}
+                    onChange={e => setEditRole(e.target.value as UserRole)}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl p-2.5 text-white focus:outline-none focus:border-amber-500"
+                  >
+                    {availableRoles.map(role => (
+                      <option key={role} value={role} className="bg-[#141417]">{role}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-gray-400 mb-1 font-semibold">Department</label>
+                  <input
+                    type="text"
+                    value={editDepartment}
+                    onChange={e => setEditDepartment(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl p-2.5 text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-gray-400 mb-1 font-semibold">Primary Location</label>
+                  <select
+                    value={editLocation}
+                    onChange={e => setEditLocation(e.target.value as LocationType)}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl p-2.5 text-white focus:outline-none focus:border-amber-500"
+                  >
+                    {availableLocations.map(loc => (
+                      <option key={loc} value={loc} className="bg-[#141417]">{loc}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-gray-400 mb-1 font-semibold">Account Status</label>
+                  <select
+                    value={editStatus}
+                    onChange={e => setEditStatus(e.target.value as UserAccountStatus)}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl p-2.5 text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="Active Approved" className="bg-[#141417]">Active Approved</option>
+                    <option value="Pending Admin Approval" className="bg-[#141417]">Pending Admin Approval</option>
+                    <option value="Pending Email Verification" className="bg-[#141417]">Pending Email Verification</option>
+                    <option value="Suspended" className="bg-[#141417]">Suspended</option>
+                    <option value="Deactivated" className="bg-[#141417]">Deactivated</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingUser(null)}
+                  className="px-4 py-2 rounded-xl text-gray-400 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-amber-500 text-black font-bold hover:bg-amber-400 transition"
+                >
+                  Save Profile Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE USER CONFIRMATION MODAL */}
+      {deletingUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="bg-[#111114] border border-rose-500/30 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden text-xs text-gray-200">
+            <div className="p-5 border-b border-white/10 flex items-center justify-between bg-rose-500/10">
+              <div className="flex items-center space-x-2 text-rose-400">
+                <AlertCircle className="w-5 h-5" />
+                <h3 className="font-bold text-white text-base">Confirm Permanent Deletion</h3>
+              </div>
+              <button onClick={() => setDeletingUser(null)} className="text-gray-400 hover:text-white">
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {deleteError && (
+                <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-300 flex items-center space-x-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+                  <span>{deleteError}</span>
+                </div>
+              )}
+
+              {deleteSuccess && (
+                <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-300 flex items-center space-x-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                  <span>{deleteSuccess}</span>
+                </div>
+              )}
+
+              <p className="text-gray-300">
+                Are you sure you want to permanently remove <strong className="text-white">{deletingUser.name}</strong> (<span className="text-amber-300 font-mono">{deletingUser.email}</span>) from the database?
+              </p>
+              
+              <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-300 text-[11px]">
+                ⚠️ This will purge their record from IndexedDB, LocalStorage, and Cloud Firestore. This action cannot be reversed.
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setDeletingUser(null)}
+                  className="px-4 py-2 rounded-xl text-gray-400 hover:text-white font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDeleteUser}
+                  className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold transition flex items-center space-x-1.5"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Permanently Delete User</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

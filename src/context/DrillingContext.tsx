@@ -49,9 +49,12 @@ interface DrillingContextType {
   loginUser: (userId: string, accessKey?: string) => { success: boolean; message: string };
   logoutUser: () => void;
   setCurrentUserRole: (role: UserRole) => void;
-  registerUser: (newUser: { name: string; email: string; role: UserRole; department: string; location: LocationType }) => { success: boolean; message: string; user?: UserProfile };
+  registerUser: (newUser: { name: string; email: string; role: UserRole; department: string; location: LocationType; initialStatus?: UserAccountStatus }) => { success: boolean; message: string; user?: UserProfile };
   updateUserStatus: (userId: string, status: UserAccountStatus) => void;
   updateUserRole: (userId: string, role: UserRole) => void;
+  updateUser: (userId: string, updates: Partial<UserProfile>) => { success: boolean; message: string };
+  deleteUser: (userId: string) => { success: boolean; message: string };
+  revokeUserAccess: (userId: string) => { success: boolean; message: string };
   resendVerificationEmail: (userId: string) => void;
   verifyEmailWithToken: (token: string) => boolean;
   emailOutbox: VerificationEmailRecord[];
@@ -603,7 +606,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   // User Registration & Corporate Email Validation
-  const registerUser = (newUser: { name: string; email: string; role: UserRole; department: string; location: LocationType }) => {
+  const registerUser = (newUser: { name: string; email: string; role: UserRole; department: string; location: LocationType; initialStatus?: UserAccountStatus }) => {
     const domain = newUser.email.split('@')[1]?.toLowerCase();
     if (!domain) {
       return { success: false, message: 'Invalid email address format.' };
@@ -625,6 +628,9 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const userId = `usr-${Date.now()}`;
     const token = `VERIFY-TOK-${Math.floor(100000 + Math.random() * 900000)}`;
 
+    const initialStatus = newUser.initialStatus || 'Pending Email Verification';
+    const isApproved = initialStatus === 'Active Approved';
+
     const userRecord: UserProfile = {
       id: userId,
       name: newUser.name,
@@ -632,35 +638,39 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       role: newUser.role,
       department: newUser.department,
       location: newUser.location,
-      status: 'Pending Email Verification',
-      verificationToken: token,
+      status: initialStatus,
+      verificationToken: isApproved ? undefined : token,
       verificationSentAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
       registeredAt: new Date().toISOString().split('T')[0],
-      isCorporateVerified: false,
+      isCorporateVerified: isApproved,
+      approvedBy: isApproved ? (currentUser?.name || 'System Administrator') : undefined,
       corporateDomain: domain,
     };
 
     setAllUsers(prev => [...prev, userRecord]);
     saveUserToFirestore(userRecord);
 
-    // Dispatch verification email record to outbox
-    const emailRecord: VerificationEmailRecord = {
-      id: `email-${Date.now()}`,
-      recipientEmail: newUser.email,
-      userName: newUser.name,
-      corporateDomain: domain,
-      token,
-      sentAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      status: 'Delivered',
-      verificationLink: `${window.location.origin}/verify?token=${token}`,
-    };
+    if (!isApproved) {
+      const emailRecord: VerificationEmailRecord = {
+        id: `email-${Date.now()}`,
+        recipientEmail: newUser.email,
+        userName: newUser.name,
+        corporateDomain: domain,
+        token,
+        sentAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
+        status: 'Delivered',
+        verificationLink: `${window.location.origin}/verify?token=${token}`,
+      };
 
-    setEmailOutbox(prev => [emailRecord, ...prev]);
-    saveOutboxRecordToFirestore(emailRecord);
+      setEmailOutbox(prev => [emailRecord, ...prev]);
+      saveOutboxRecordToFirestore(emailRecord);
+    }
 
     return { 
       success: true, 
-      message: `Registration initiated. Validation token sent to ${newUser.email}.`, 
+      message: isApproved 
+        ? `Corporate user registered & active access granted for ${newUser.email}.`
+        : `Registration initiated. Validation token sent to ${newUser.email}.`, 
       user: userRecord 
     };
   };
@@ -671,7 +681,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         const updated = {
           ...u,
           status,
-          approvedBy: status === 'Active Approved' ? currentUser.name : u.approvedBy,
+          approvedBy: status === 'Active Approved' ? (currentUser?.name || 'System Administrator') : u.approvedBy,
         };
         saveUserToFirestore(updated);
         return updated;
@@ -689,6 +699,55 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
       return u;
     }));
+  };
+
+  const updateUser = (userId: string, updates: Partial<UserProfile>) => {
+    const target = allUsers.find(u => u.id === userId);
+    if (!target) {
+      return { success: false, message: 'User profile not found in database.' };
+    }
+
+    const domain = updates.email ? updates.email.split('@')[1]?.toLowerCase() : target.corporateDomain;
+    const updatedUser: UserProfile = {
+      ...target,
+      ...updates,
+      corporateDomain: domain || target.corporateDomain,
+    };
+
+    setAllUsers(prev => prev.map(u => u.id === userId ? updatedUser : u));
+
+    if (currentUser?.id === userId) {
+      setCurrentUser(updatedUser);
+    }
+
+    saveUserToFirestore(updatedUser);
+    return { success: true, message: `User ${updatedUser.name} (${updatedUser.email}) successfully updated.` };
+  };
+
+  const revokeUserAccess = (userId: string) => {
+    return updateUser(userId, { status: 'Suspended' });
+  };
+
+  const deleteUser = (userId: string) => {
+    const target = allUsers.find(u => u.id === userId);
+    if (!target) {
+      return { success: false, message: 'User record not found in database.' };
+    }
+
+    setAllUsers(prev => prev.filter(u => u.id !== userId));
+
+    if (currentUser?.id === userId) {
+      const remaining = allUsers.filter(u => u.id !== userId);
+      if (remaining.length > 0) {
+        setCurrentUser(remaining[0]);
+      }
+    }
+
+    if (!isOffline && db) {
+      deleteDoc(doc(db, 'users', userId)).catch(err => console.error('Firestore deleteUser error:', err));
+    }
+
+    return { success: true, message: `User ${target.name} (${target.email}) permanently removed from database.` };
   };
 
   const resendVerificationEmail = (userId: string) => {
@@ -1428,6 +1487,9 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       registerUser,
       updateUserStatus,
       updateUserRole,
+      updateUser,
+      deleteUser,
+      revokeUserAccess,
       resendVerificationEmail,
       verifyEmailWithToken,
       emailOutbox,
