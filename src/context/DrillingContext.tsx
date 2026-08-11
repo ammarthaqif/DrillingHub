@@ -173,7 +173,7 @@ interface DrillingContextType {
   // Backload Automated Routing Engine & PO Attachment
   autoRouteBackloadItems: (manifestId?: string, ageThresholdYears?: number) => void;
   attachApprovedPOToItem: (itemId: string, poNumber: string, vendorName: string, serviceScope: string, costUsd?: number) => void;
-  attachApprovedPOToBackloadItem: (manifestId: string, itemTagNumber: string, poNumber: string, vendorName: string, serviceScope: string) => void;
+  attachApprovedPOToBackloadItem: (manifestId: string, itemTagNumber: string, poNumber: string, vendorName: string, serviceScope: string, costUsd?: number) => void;
 
   // Audit Trail System
   auditTrailLogs: AuditTrailLog[];
@@ -184,6 +184,12 @@ interface DrillingContextType {
     notes?: string,
     userOverride?: { id: string; name: string; role: UserRole; location: LocationType }
   ) => void;
+
+  // Role-Based Access Control (RBAC) Module Permissions
+  roleModulePermissions: Record<string, string[]>;
+  updateRoleModulePermissions: (role: string, allowedModules: string[]) => void;
+  resetRoleModulePermissions: () => void;
+  hasModuleAccess: (role: string, moduleKey: string) => boolean;
 
   // Filters & Views
   searchQuery: string;
@@ -220,6 +226,32 @@ import {
   deleteDoc, 
   writeBatch 
 } from '../lib/firebase';
+
+export const DEFAULT_ROLE_MODULE_PERMISSIONS: Record<string, string[]> = {
+  'System Administrator': [
+    'dashboard', 'inventory', 'drillingEngineer', 'supplyBaseMatco', 
+    'rigSiteMatco', 'checkAndBalance', 'holeSection', 'surplus', 
+    'movement', 'audit', 'admin'
+  ],
+  'Drilling Engineer': [
+    'dashboard', 'inventory', 'drillingEngineer', 'holeSection', 'surplus'
+  ],
+  'Logistics Coordinator': [
+    'dashboard', 'inventory', 'movement', 'supplyBaseMatco', 'rigSiteMatco', 'surplus'
+  ],
+  'Materials Coordinator (Supply Base)': [
+    'dashboard', 'inventory', 'supplyBaseMatco', 'movement', 'surplus'
+  ],
+  'Rig Toolpusher / Materials Specialist': [
+    'dashboard', 'inventory', 'rigSiteMatco', 'movement', 'surplus'
+  ],
+  'QA/QC Inspector': [
+    'dashboard', 'inventory', 'checkAndBalance', 'audit'
+  ],
+  'Auditor / Management': [
+    'dashboard', 'inventory', 'audit', 'checkAndBalance'
+  ]
+};
 
 const DEFAULT_CONFIG: SystemConfiguration = {
   corporateDomains: ['petronas.com', 'shell.com', 'chevron.com', 'totalenergies.com', 'halliburton.com', 'bakerhughes.com', 'drillspec.corp'],
@@ -2036,7 +2068,8 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     itemTagNumber: string, 
     poNumber: string, 
     vendorName: string, 
-    serviceScope: string
+    serviceScope: string,
+    costUsd?: number
   ) => {
     setRigBackloads(prev => prev.map(rbl => {
       if (rbl.id === manifestId) {
@@ -2063,6 +2096,60 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       `${manifestId}:${itemTagNumber}`,
       `Approved PO #${poNumber} verified for vendor service on ${itemTagNumber} (${vendorName}).`
     );
+  };
+
+  // Role-Based Access Control (RBAC) Module Permissions State
+  const [roleModulePermissions, setRoleModulePermissions] = useState<Record<string, string[]>>(() => {
+    try {
+      const saved = localStorage.getItem('drillcore_role_module_permissions');
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.warn('Failed to parse role module permissions from localStorage', e);
+    }
+    return DEFAULT_ROLE_MODULE_PERMISSIONS;
+  });
+
+  const updateRoleModulePermissions = (role: string, allowedModules: string[]) => {
+    setRoleModulePermissions(prev => {
+      const updated = {
+        ...prev,
+        [role]: allowedModules
+      };
+      try {
+        localStorage.setItem('drillcore_role_module_permissions', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Failed to save role permissions', e);
+      }
+      return updated;
+    });
+
+    logAuditTrail(
+      'SYSTEM_CONFIG_UPDATED',
+      `RBAC_MODULE_ACCESS:${role}`,
+      `Updated module access permissions for role "${role}" (${allowedModules.length} modules granted: ${allowedModules.join(', ')}).`
+    );
+  };
+
+  const resetRoleModulePermissions = () => {
+    setRoleModulePermissions(DEFAULT_ROLE_MODULE_PERMISSIONS);
+    try {
+      localStorage.setItem('drillcore_role_module_permissions', JSON.stringify(DEFAULT_ROLE_MODULE_PERMISSIONS));
+    } catch (e) {
+      console.error(e);
+    }
+    logAuditTrail(
+      'SYSTEM_CONFIG_UPDATED',
+      'RBAC_MODULE_ACCESS_RESET',
+      'Reset all role-based module access permissions to system factory defaults.'
+    );
+  };
+
+  const hasModuleAccess = (role: string, moduleKey: string) => {
+    if (role === 'System Administrator') return true;
+    const permissions = roleModulePermissions[role] || DEFAULT_ROLE_MODULE_PERMISSIONS[role] || ['dashboard', 'inventory'];
+    return permissions.includes(moduleKey);
   };
 
   // Sync Queue
@@ -2222,6 +2309,10 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       processBackloadActionAtBase,
       auditTrailLogs,
       logAuditTrail,
+      roleModulePermissions,
+      updateRoleModulePermissions,
+      resetRoleModulePermissions,
+      hasModuleAccess,
       selectedTubularIdsForTransfer,
       toggleTubularSelectionForTransfer,
       setSelectedTubularIdsForTransfer,

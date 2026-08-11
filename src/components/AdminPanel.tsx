@@ -74,10 +74,14 @@ export const AdminPanel: React.FC = () => {
     availableCarrierTypes,
     addDropdownOption,
     removeDropdownOption,
-    resetDropdownOptions
+    resetDropdownOptions,
+    roleModulePermissions,
+    updateRoleModulePermissions,
+    resetRoleModulePermissions,
+    hasModuleAccess
   } = useDrilling();
 
-  const [activeTab, setActiveTab] = useState<'users' | 'emailConfig' | 'dropdowns' | 'sysConfig' | 'database'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'emailConfig' | 'dropdowns' | 'sysConfig' | 'database' | 'moduleAccess'>('users');
   
   // Dropdown Manager State
   const [selectedDropdownCategory, setSelectedDropdownCategory] = useState<DropdownCategoryKey>('roles');
@@ -387,6 +391,16 @@ export const AdminPanel: React.FC = () => {
         >
           <Database className="w-4 h-4" />
           <span>Embedded Real-Time DB Engine</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('moduleAccess')}
+          className={`px-4 py-3 border-b-2 transition flex items-center space-x-2 ${
+            activeTab === 'moduleAccess' ? 'border-amber-500 text-amber-400 bg-amber-500/5' : 'border-transparent text-gray-400 hover:text-white'
+          }`}
+        >
+          <Sliders className="w-4 h-4 text-purple-400" />
+          <span>Role Module Access Matrix</span>
         </button>
       </div>
 
@@ -1137,6 +1151,189 @@ export const AdminPanel: React.FC = () => {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 6: ROLE-BASED ACCESS CONTROL (RBAC) MODULE PERMISSIONS MATRIX */}
+      {activeTab === 'moduleAccess' && (
+        <div className="space-y-6">
+          {/* Header Card */}
+          <div className="bg-[#111114] border border-white/10 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center space-x-2">
+                <Sliders className="w-5 h-5 text-amber-400" />
+                <h2 className="text-base font-bold text-white">Role-Based Access Control (RBAC) Module Permissions Engine</h2>
+                <span className="px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/30 text-[10px] font-bold uppercase tracking-wider">
+                  Governance Matrix
+                </span>
+              </div>
+              <p className="text-xs text-gray-400">
+                Define explicit module access rights for each role. Each role will strictly see and navigate only to their authorized campaign modules.
+              </p>
+            </div>
+
+            <button
+              onClick={() => {
+                if (window.confirm('Reset all role module permissions to system default mapping?')) {
+                  resetRoleModulePermissions();
+                }
+              }}
+              className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-gray-200 text-xs font-semibold transition flex items-center space-x-2 shrink-0"
+            >
+              <RotateCcw className="w-4 h-4 text-amber-400" />
+              <span>Reset Permissions to Default</span>
+            </button>
+          </div>
+
+          {/* Role Access Cards List */}
+          <div className="space-y-4">
+            {availableRoles.map(role => {
+              const isAdminRole = role === 'System Administrator';
+              const activeModules = roleModulePermissions[role] || (isAdminRole ? [
+                'dashboard', 'inventory', 'drillingEngineer', 'supplyBaseMatco', 
+                'rigSiteMatco', 'checkAndBalance', 'holeSection', 'surplus', 
+                'movement', 'audit', 'admin'
+              ] : ['dashboard', 'inventory']);
+
+              const roleUsers = allUsers.filter(u => u.role === role);
+
+              const allModuleList: Array<{
+                key: string;
+                name: string;
+                category: string;
+                desc: string;
+              }> = [
+                { key: 'dashboard', name: 'Executive Dashboard', category: 'General', desc: 'Campaign KPIs, inventory distribution, critical alerts' },
+                { key: 'inventory', name: 'Tubulars & Tools Inventory', category: 'General', desc: 'Serial-tracked master inventory table and details' },
+                { key: 'drillingEngineer', name: 'Drilling Engineer Hub', category: 'Engineering', desc: 'Design tally creation, API Spec safety factor checks' },
+                { key: 'supplyBaseMatco', name: 'Supply Base Matco', category: 'Logistics', desc: 'Yard management, PO compliance verification' },
+                { key: 'rigSiteMatco', name: 'Rig Site Matco', category: 'Offshore', desc: 'Deck tally, vessel unloading, RIH tally, backloads' },
+                { key: 'checkAndBalance', name: 'Check & Balance Matrix', category: 'QA / QC', desc: 'Physical vs digital tally reconciliation & flags' },
+                { key: 'holeSection', name: 'Hole Section Planner', category: 'Engineering', desc: 'Hole section planning (36" to 6") and allocation' },
+                { key: 'surplus', name: 'Surplus & Backloads', category: 'Logistics', desc: 'Surplus booking workflow & 5-stage approvals' },
+                { key: 'movement', name: 'Material Transfers', category: 'Logistics', desc: 'Manifest creation, transfer tracking & signoffs' },
+                { key: 'audit', name: 'Audit Reports & Logs', category: 'Audit', desc: 'Campaign audit trail and downloadable reports' },
+                { key: 'admin', name: 'Admin & Access Control', category: 'Governance', desc: 'User management, domain whitelist, RBAC matrix' },
+              ];
+
+              const toggleModule = (modKey: string) => {
+                if (isAdminRole && modKey === 'admin') return;
+                let updated: string[];
+                if (activeModules.includes(modKey)) {
+                  updated = activeModules.filter(m => m !== modKey);
+                } else {
+                  updated = [...activeModules, modKey];
+                }
+                updateRoleModulePermissions(role, updated);
+              };
+
+              const grantAll = () => {
+                const allKeys = allModuleList.map(m => m.key);
+                updateRoleModulePermissions(role, allKeys);
+              };
+
+              const grantCoreOnly = () => {
+                updateRoleModulePermissions(role, ['dashboard', 'inventory']);
+              };
+
+              const clearAll = () => {
+                if (isAdminRole) {
+                  updateRoleModulePermissions(role, ['admin']);
+                } else {
+                  updateRoleModulePermissions(role, []);
+                }
+              };
+
+              return (
+                <div 
+                  key={role} 
+                  className={`bg-[#111114] border rounded-2xl p-5 shadow-lg space-y-4 transition ${
+                    isAdminRole ? 'border-amber-500/30' : 'border-white/10 hover:border-white/20'
+                  }`}
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
+                    <div className="flex items-center space-x-3">
+                      <div className={`p-2.5 rounded-xl ${isAdminRole ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' : 'bg-white/5 text-gray-300'}`}>
+                        <Shield className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <h3 className="font-extrabold text-white text-sm">{role}</h3>
+                          {isAdminRole && (
+                            <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-bold">
+                              System Governance Admin
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-gray-400">
+                          {roleUsers.length} user{roleUsers.length === 1 ? '' : 's'} assigned • {activeModules.length} of {allModuleList.length} modules accessible
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center space-x-2 text-[11px]">
+                      <button
+                        onClick={grantAll}
+                        className="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/30 font-semibold transition"
+                      >
+                        Grant All
+                      </button>
+                      <button
+                        onClick={grantCoreOnly}
+                        className="px-2.5 py-1 rounded-lg bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10 font-semibold transition"
+                      >
+                        Core Only
+                      </button>
+                      <button
+                        onClick={clearAll}
+                        className="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/30 font-semibold transition"
+                      >
+                        Clear Non-Core
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Modules Checkbox Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
+                    {allModuleList.map((mod) => {
+                      const isChecked = activeModules.includes(mod.key);
+                      const isLockedAdmin = isAdminRole && mod.key === 'admin';
+
+                      return (
+                        <label
+                          key={mod.key}
+                          onClick={() => !isLockedAdmin && toggleModule(mod.key)}
+                          className={`p-3 rounded-xl border flex items-start space-x-2.5 cursor-pointer transition select-none ${
+                            isChecked
+                              ? 'bg-amber-500/10 border-amber-500/40 text-white'
+                              : 'bg-white/5 border-white/5 text-gray-400 hover:bg-white/10 hover:text-gray-200'
+                          } ${isLockedAdmin ? 'opacity-80 cursor-not-allowed' : ''}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            disabled={isLockedAdmin}
+                            onChange={() => {}}
+                            className="mt-0.5 rounded border-white/20 bg-black text-amber-500 focus:ring-amber-500 h-4 w-4 shrink-0"
+                          />
+                          <div className="space-y-0.5 overflow-hidden">
+                            <div className="flex items-center space-x-1.5">
+                              <span className={`text-xs font-bold truncate ${isChecked ? 'text-amber-300' : 'text-gray-300'}`}>
+                                {mod.name}
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-gray-400 line-clamp-1">
+                              {mod.desc}
+                            </p>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

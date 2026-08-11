@@ -45,6 +45,7 @@ import {
 
 const MainAppContent: React.FC = () => {
   const { 
+    currentUser,
     items, 
     transfers, 
     allUsers,
@@ -52,12 +53,48 @@ const MainAppContent: React.FC = () => {
     isOffline,
     setIsOffline,
     offlineQueue,
-    processSyncQueue
+    processSyncQueue,
+    hasModuleAccess
   } = useDrilling();
+
+  const userRole = currentUser?.role || 'Drilling Engineer';
 
   const [activeNav, setActiveNav] = useState<
     'dashboard' | 'inventory' | 'drillingEngineer' | 'supplyBaseMatco' | 'rigSiteMatco' | 'checkAndBalance' | 'holeSection' | 'surplus' | 'movement' | 'audit' | 'admin'
   >('dashboard');
+
+  const pendingApprovalsCount = allUsers.filter(u => u.status === 'Pending Email Verification' || u.status === 'Pending Admin Approval').length;
+
+  // Module Navigation Definitions
+  const navTabs: Array<{
+    key: 'dashboard' | 'inventory' | 'drillingEngineer' | 'supplyBaseMatco' | 'rigSiteMatco' | 'checkAndBalance' | 'holeSection' | 'surplus' | 'movement' | 'audit' | 'admin';
+    label: string;
+    icon: React.ReactNode;
+    badge?: number;
+  }> = [
+    { key: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
+    { key: 'inventory', label: 'Tubulars & Tools', icon: <HardHat className="w-4 h-4" />, badge: items.length },
+    { key: 'drillingEngineer', label: 'Drilling Engineer Hub', icon: <Calculator className="w-4 h-4 text-amber-400" /> },
+    { key: 'supplyBaseMatco', label: 'Supply Base Matco', icon: <Building2 className="w-4 h-4 text-emerald-400" /> },
+    { key: 'rigSiteMatco', label: 'Rig Site Matco', icon: <Anchor className="w-4 h-4 text-cyan-400" /> },
+    { key: 'checkAndBalance', label: 'Check & Balance Matrix', icon: <ShieldCheck className="w-4 h-4 text-purple-400" /> },
+    { key: 'holeSection', label: 'Hole Section Planner', icon: <Layers className="w-4 h-4 text-cyan-400" /> },
+    { key: 'surplus', label: 'Surplus & Backloads', icon: <Clock className="w-4 h-4 text-amber-400" /> },
+    { key: 'movement', label: 'Material Transfers', icon: <Truck className="w-4 h-4 text-emerald-400" />, badge: transfers.length },
+    { key: 'audit', label: 'Audit Reports', icon: <FileCheck className="w-4 h-4 text-purple-400" /> },
+    { key: 'admin', label: 'Admin & Access Control', icon: <ShieldCheck className="w-4 h-4 text-amber-400" />, badge: pendingApprovalsCount > 0 ? pendingApprovalsCount : undefined },
+  ];
+
+  // Filter allowed tabs based on role permissions
+  const allowedNavTabs = navTabs.filter(tab => hasModuleAccess(userRole, tab.key));
+
+  // Automatically adjust active tab if current role is restricted from activeNav
+  React.useEffect(() => {
+    if (!hasModuleAccess(userRole, activeNav)) {
+      const fallback = allowedNavTabs[0]?.key || 'dashboard';
+      setActiveNav(fallback);
+    }
+  }, [userRole, activeNav, hasModuleAccess]);
 
   // Modal / Drawer States
   const [selectedItemForDrawer, setSelectedItemForDrawer] = useState<TubularItem | null>(null);
@@ -74,8 +111,6 @@ const MainAppContent: React.FC = () => {
   if (!isAuthenticated) {
     return <AuthGate />;
   }
-
-  const pendingApprovalsCount = allUsers.filter(u => u.status === 'Pending Email Verification' || u.status === 'Pending Admin Approval').length;
 
   const handleOpenTransferModalWithItems = (itemIds: string[]) => {
     setTransferModalItemIds(itemIds);
@@ -110,148 +145,30 @@ const MainAppContent: React.FC = () => {
         <div className="max-w-7xl mx-auto flex items-center justify-between overflow-x-auto scrollbar-none py-2 gap-2">
           
           <div className="flex items-center space-x-1 sm:space-x-2 shrink-0">
-            <button
-              onClick={() => setActiveNav('dashboard')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 ${
-                activeNav === 'dashboard'
-                  ? 'bg-amber-500 text-black shadow-md'
-                  : 'text-gray-400 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <LayoutDashboard className="w-4 h-4" />
-              <span>Dashboard</span>
-            </button>
-
-            <button
-              onClick={() => setActiveNav('inventory')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 ${
-                activeNav === 'inventory'
-                  ? 'bg-amber-500 text-black shadow-md'
-                  : 'text-gray-400 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <HardHat className="w-4 h-4" />
-              <span>Tubulars & Tools</span>
-              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono ${activeNav === 'inventory' ? 'bg-black/20 text-black' : 'bg-white/10 text-gray-300'}`}>
-                {items.length}
-              </span>
-            </button>
-
-            <button
-              onClick={() => setActiveNav('drillingEngineer')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 ${
-                activeNav === 'drillingEngineer'
-                  ? 'bg-amber-500 text-black shadow-md'
-                  : 'text-gray-400 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <Calculator className="w-4 h-4 text-amber-400" />
-              <span>Drilling Engineer Hub</span>
-            </button>
-
-            <button
-              onClick={() => setActiveNav('supplyBaseMatco')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 ${
-                activeNav === 'supplyBaseMatco'
-                  ? 'bg-amber-500 text-black shadow-md'
-                  : 'text-gray-400 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <Building2 className="w-4 h-4 text-emerald-400" />
-              <span>Supply Base Matco</span>
-            </button>
-
-            <button
-              onClick={() => setActiveNav('rigSiteMatco')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 ${
-                activeNav === 'rigSiteMatco'
-                  ? 'bg-amber-500 text-black shadow-md'
-                  : 'text-gray-400 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <Anchor className="w-4 h-4 text-cyan-400" />
-              <span>Rig Site Matco</span>
-            </button>
-
-            <button
-              onClick={() => setActiveNav('checkAndBalance')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 ${
-                activeNav === 'checkAndBalance'
-                  ? 'bg-amber-500 text-black shadow-md'
-                  : 'text-gray-400 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <ShieldCheck className="w-4 h-4 text-purple-400" />
-              <span>Check & Balance Matrix</span>
-            </button>
-
-            <button
-              onClick={() => setActiveNav('holeSection')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 ${
-                activeNav === 'holeSection'
-                  ? 'bg-amber-500 text-black shadow-md'
-                  : 'text-gray-400 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <Layers className="w-4 h-4 text-cyan-400" />
-              <span>Hole Section Planner</span>
-            </button>
-
-            <button
-              onClick={() => setActiveNav('surplus')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 ${
-                activeNav === 'surplus'
-                  ? 'bg-amber-500 text-black shadow-md'
-                  : 'text-gray-400 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <Clock className="w-4 h-4 text-amber-400" />
-              <span>Surplus & Backloads</span>
-            </button>
-
-            <button
-              onClick={() => setActiveNav('movement')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 ${
-                activeNav === 'movement'
-                  ? 'bg-amber-500 text-black shadow-md'
-                  : 'text-gray-400 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <Truck className="w-4 h-4 text-emerald-400" />
-              <span>Material Transfers</span>
-              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono ${activeNav === 'movement' ? 'bg-black/20 text-black' : 'bg-white/10 text-gray-300'}`}>
-                {transfers.length}
-              </span>
-            </button>
-
-            <button
-              onClick={() => setActiveNav('audit')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 ${
-                activeNav === 'audit'
-                  ? 'bg-amber-500 text-black shadow-md'
-                  : 'text-gray-400 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <FileCheck className="w-4 h-4 text-purple-400" />
-              <span>Audit Reports</span>
-            </button>
-
-            <button
-              onClick={() => setActiveNav('admin')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 ${
-                activeNav === 'admin'
-                  ? 'bg-amber-500 text-black shadow-md'
-                  : 'text-gray-400 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <ShieldCheck className="w-4 h-4 text-amber-400" />
-              <span>Admin & Access Control</span>
-              {pendingApprovalsCount > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold bg-amber-500 text-black animate-pulse">
-                  {pendingApprovalsCount}
-                </span>
-              )}
-            </button>
+            {allowedNavTabs.map((tab) => {
+              const isActive = activeNav === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveNav(tab.key)}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 ${
+                    isActive
+                      ? 'bg-amber-500 text-black shadow-md'
+                      : 'text-gray-400 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  {tab.icon}
+                  <span>{tab.label}</span>
+                  {tab.badge !== undefined && (
+                    <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                      isActive ? 'bg-black/20 text-black' : 'bg-white/10 text-gray-300'
+                    }`}>
+                      {tab.badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
 
           {/* Offline Sync Controls */}

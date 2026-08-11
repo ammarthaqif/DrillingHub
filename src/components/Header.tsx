@@ -46,8 +46,13 @@ export const Header: React.FC<HeaderProps> = ({
     isOffline, 
     setIsOffline, 
     offlineQueue, 
-    processSyncQueue 
+    processSyncQueue,
+    hasModuleAccess
   } = useDrilling();
+
+  const userRole = currentUser?.role || 'Drilling Engineer';
+  const canAccessAdmin = hasModuleAccess(userRole, 'admin');
+  const canAccessAudit = hasModuleAccess(userRole, 'audit');
 
   const pendingApprovalsCount = allUsers.filter(u => u.status === 'Pending Email Verification' || u.status === 'Pending Admin Approval').length;
 
@@ -86,7 +91,7 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
 
             {/* Admin Panel Quick Access */}
-            {onOpenAdminPanel && (
+            {onOpenAdminPanel && canAccessAdmin && (
               <button
                 onClick={onOpenAdminPanel}
                 className="relative flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium rounded-xl bg-white/5 text-gray-200 hover:bg-white/10 border border-white/10 transition"
@@ -103,14 +108,16 @@ export const Header: React.FC<HeaderProps> = ({
             )}
 
             {/* Audit Reports */}
-            <button
-              onClick={onOpenAuditReports}
-              className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium rounded-xl bg-white/5 text-gray-200 hover:bg-white/10 border border-white/10 transition"
-              title="Audit-Ready Tally & Compliance Reports"
-            >
-              <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-              <span className="hidden lg:inline">Audit Reports</span>
-            </button>
+            {onOpenAuditReports && canAccessAudit && (
+              <button
+                onClick={onOpenAuditReports}
+                className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium rounded-xl bg-white/5 text-gray-200 hover:bg-white/10 border border-white/10 transition"
+                title="Audit-Ready Tally & Compliance Reports"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+                <span className="hidden lg:inline">Audit Reports</span>
+              </button>
+            )}
 
             {/* Alerts Button */}
             <button
