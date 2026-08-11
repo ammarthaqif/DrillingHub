@@ -74,6 +74,27 @@ export interface UserProfile {
   permissions?: string[];
 }
 
+export interface ActiveSessionData {
+  userId: string;
+  userName: string;
+  userRole: string;
+  userEmail: string;
+  loginTime: number;
+  lastHeartbeat: number;
+}
+
+export interface ConcurrentLoginRequestData {
+  requestId: string;
+  requestingUser: {
+    id: string;
+    name: string;
+    role: string;
+    email: string;
+  };
+  timestamp: number;
+  status: 'PENDING' | 'ACCEPTED' | 'DECLINED';
+}
+
 export interface InspectionRecord {
   id: string;
   date: string;

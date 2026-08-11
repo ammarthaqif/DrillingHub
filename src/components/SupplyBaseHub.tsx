@@ -553,8 +553,8 @@ export const SupplyBaseHub: React.FC = () => {
                 );
               })
               .map((rbl) => {
-                const isArrived = rbl.status.includes('Arrived') || rbl.vesselArrivalTimestamp;
-                const isActionCompleted = rbl.status === 'Action Completed' || rbl.status === 'Reconciled & Racked';
+                const isArrived = rbl.status.includes('Arrived');
+                const isActionCompleted = rbl.status.startsWith('Action Completed') || rbl.status === 'Reconciled & Racked';
 
                 return (
                   <div key={rbl.id} className="p-5 rounded-2xl bg-black/40 border border-white/10 space-y-4 shadow-md">
@@ -592,9 +592,9 @@ export const SupplyBaseHub: React.FC = () => {
                           <div className="flex items-center space-x-1 mt-0.5">
                             <span className="text-gray-400 text-[10px]">KPI SLA Status:</span>
                             <span className={`font-bold text-[11px] ${
-                              rbl.kpiStatus === 'Completed On Time' ? 'text-emerald-400' :
-                              rbl.kpiStatus === 'SLA Breached' ? 'text-rose-400' :
-                              rbl.kpiStatus === 'Arrived at Quay - SLA Active' ? 'text-cyan-300 animate-pulse' :
+                              rbl.kpiStatus === 'On Track' ? 'text-emerald-400' :
+                              rbl.kpiStatus === 'Completed Overdue' ? 'text-rose-400' :
+                              rbl.kpiStatus === 'Near Breach' ? 'text-amber-300 animate-pulse' :
                               'text-amber-300'
                             }`}>
                               {rbl.kpiStatus || 'In Transit'}
@@ -625,11 +625,6 @@ export const SupplyBaseHub: React.FC = () => {
                         <p className="text-[11px] font-extrabold text-gray-300 uppercase tracking-wider">
                           Manifest Tubular Items & Next Action Disposition:
                         </p>
-                        {rbl.vesselArrivalTimestamp && (
-                          <span className="text-[10px] text-gray-400 font-mono">
-                            Arrived Quay: {new Date(rbl.vesselArrivalTimestamp).toLocaleString()}
-                          </span>
-                        )}
                       </div>
 
                       <div className="divide-y divide-white/5 border border-white/10 rounded-xl overflow-hidden bg-black/20">
@@ -663,15 +658,15 @@ export const SupplyBaseHub: React.FC = () => {
                                 {actionDone ? (
                                   <div className="p-2 rounded-lg bg-white/5 border border-white/10 text-right">
                                     <span className={`text-[10px] uppercase font-extrabold px-2 py-0.5 rounded ${
-                                      item.actionType === 'SEND_TO_INSPECTION' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
-                                      item.actionType === 'SEND_TO_DISPOSAL' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' :
+                                      item.actionType === 'SENT_FOR_INSPECTION' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
+                                      item.actionType === 'SENT_FOR_DISPOSAL' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' :
                                       'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                                     }`}>
                                       Action: {item.actionType?.replace(/_/g, ' ')}
                                     </span>
-                                    {item.processedByMatco && (
+                                    {item.actionTakenBy && (
                                       <p className="text-[9px] text-gray-400 font-mono mt-1">
-                                        Processed by {item.processedByMatco} @ {item.processedTimestamp ? new Date(item.processedTimestamp).toLocaleTimeString() : ''}
+                                        Processed by {item.actionTakenBy} @ {item.actionTakenAt ? new Date(item.actionTakenAt).toLocaleTimeString() : ''}
                                       </p>
                                     )}
                                   </div>
@@ -684,10 +679,11 @@ export const SupplyBaseHub: React.FC = () => {
                                         processBackloadActionAtBase(
                                           rbl.id,
                                           item.tagNumber,
-                                          'SEND_TO_INSPECTION',
-                                          'Machine Shop & Testing Facility',
-                                          'Vendor Inspection Bay 2',
-                                          'Sent to vendor machine shop for NDT inspection and thread recutting.'
+                                          'SENT_FOR_INSPECTION',
+                                          {
+                                            inspectionFacility: 'Machine Shop & Testing Facility',
+                                            notes: 'Sent to vendor machine shop for NDT inspection and thread recutting.'
+                                          }
                                         );
                                       }}
                                       className="px-2.5 py-1.5 bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/40 rounded-lg text-xs font-bold transition flex items-center space-x-1"
@@ -704,10 +700,11 @@ export const SupplyBaseHub: React.FC = () => {
                                         processBackloadActionAtBase(
                                           rbl.id,
                                           item.tagNumber,
-                                          'SEND_TO_DISPOSAL',
-                                          'Scrap Yard / Disposal',
-                                          'Disposal Bay D',
-                                          'Classified as rejected beyond economic repair. Disposed/scrapped.'
+                                          'SENT_FOR_DISPOSAL',
+                                          {
+                                            disposalYardLocation: 'Scrap Yard / Disposal',
+                                            notes: 'Classified as rejected beyond economic repair. Disposed/scrapped.'
+                                          }
                                         );
                                       }}
                                       className="px-2.5 py-1.5 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white border border-rose-500/40 rounded-lg text-xs font-bold transition flex items-center space-x-1"
@@ -715,26 +712,6 @@ export const SupplyBaseHub: React.FC = () => {
                                     >
                                       <Trash2 className="w-3 h-3" />
                                       <span>2. Send for Disposal</span>
-                                    </button>
-
-                                    {/* Action 3: Direct Field Ready Storage */}
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        processBackloadActionAtBase(
-                                          rbl.id,
-                                          item.tagNumber,
-                                          'STORE_SERVICEABLE',
-                                          'Main Supply Base Yard',
-                                          'Base Yard Recert Bay 1',
-                                          'Inspected good at quayside. Restocked in Base Yard.'
-                                        );
-                                      }}
-                                      className="px-2.5 py-1.5 bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-black border border-emerald-500/40 rounded-lg text-xs font-bold transition flex items-center space-x-1"
-                                      title="Store directly as serviceable stock"
-                                    >
-                                      <CheckCircle2 className="w-3 h-3" />
-                                      <span>3. Direct Serviceable Rack</span>
                                     </button>
                                   </div>
                                 )}

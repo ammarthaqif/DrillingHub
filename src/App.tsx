@@ -20,6 +20,7 @@ import { SupplyBaseHub } from './components/SupplyBaseHub';
 import { RigSiteHub } from './components/RigSiteHub';
 import { CheckAndBalanceHub } from './components/CheckAndBalanceHub';
 import { AuthGate } from './components/AuthGate';
+import { ConcurrentLoginPromptModal } from './components/ConcurrentLoginPromptModal';
 import { TubularItem } from './types/drilling';
 import { 
   LayoutDashboard, 
@@ -401,6 +402,8 @@ const MainAppContent: React.FC = () => {
         isOpen={isAiAuditModalOpen}
         onClose={() => setIsAiAuditModalOpen(false)}
       />
+
+      <ConcurrentLoginPromptModal />
 
     </div>
   );

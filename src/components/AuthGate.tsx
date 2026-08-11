@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useDrilling } from '../context/DrillingContext';
 import { UserRole, LocationType } from '../types/drilling';
 import { 
@@ -16,7 +16,8 @@ import {
   UserPlus, 
   HardHat,
   ChevronRight,
-  Shield
+  Shield,
+  Loader2
 } from 'lucide-react';
 
 export const AuthGate: React.FC = () => {
@@ -28,7 +29,8 @@ export const AuthGate: React.FC = () => {
     systemConfig,
     availableRoles,
     availableDepartments,
-    availableLocations
+    availableLocations,
+    logoutNotice
   } = useDrilling();
 
   const [activeTab, setActiveTab] = useState<'signin' | 'request'>('signin');
@@ -38,6 +40,13 @@ export const AuthGate: React.FC = () => {
   // Notice & Errors
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // Pending Concurrent Login Request state
+  const [pendingRequestInfo, setPendingRequestInfo] = useState<{
+    requestId: string;
+    requestingUserId: string;
+    activeUser?: { name: string; role: string };
+  } | null>(null);
 
   // Verification Token Quick Input
   const [showTokenInput, setShowTokenInput] = useState(false);
@@ -50,6 +59,49 @@ export const AuthGate: React.FC = () => {
   const [reqDept, setReqDept] = useState('Drilling Operations');
   const [reqLocation, setReqLocation] = useState<LocationType>('Main Supply Base Yard');
 
+  // Listen for login request acceptance/decline status updates while in pending state
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+
+    if (pendingRequestInfo) {
+      const checkStatus = () => {
+        try {
+          const rawReq = localStorage.getItem('drillcore_concurrent_login_request');
+          if (rawReq) {
+            const parsed = JSON.parse(rawReq);
+            if (parsed && parsed.requestId === pendingRequestInfo.requestId) {
+              if (parsed.status === 'ACCEPTED') {
+                // Request approved! Override active session and complete login
+                const res = loginUser(pendingRequestInfo.requestingUserId, pinCode, { overrideActiveSession: true });
+                if (res.success) {
+                  localStorage.removeItem('drillcore_concurrent_login_request');
+                  setPendingRequestInfo(null);
+                } else {
+                  setErrorMsg(res.message);
+                  setPendingRequestInfo(null);
+                }
+              } else if (parsed.status === 'DECLINED') {
+                setErrorMsg(
+                  `Login request was DECLINED by active user session (${pendingRequestInfo.activeUser?.name || 'Active User'}). Access denied.`
+                );
+                localStorage.removeItem('drillcore_concurrent_login_request');
+                setPendingRequestInfo(null);
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Polling check error:', err);
+        }
+      };
+
+      interval = setInterval(checkStatus, 500);
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [pendingRequestInfo, pinCode, loginUser]);
+
   const handleSignIn = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
@@ -61,9 +113,27 @@ export const AuthGate: React.FC = () => {
     }
 
     const res = loginUser(selectedUserId, pinCode);
+
+    if (res.pendingRequest && res.requestId) {
+      setPendingRequestInfo({
+        requestId: res.requestId,
+        requestingUserId: selectedUserId,
+        activeUser: res.activeUser,
+      });
+      return;
+    }
+
     if (!res.success) {
       setErrorMsg(res.message);
     }
+  };
+
+  const handleCancelRequest = () => {
+    try {
+      localStorage.removeItem('drillcore_concurrent_login_request');
+    } catch {}
+    setPendingRequestInfo(null);
+    setErrorMsg('Login request cancelled.');
   };
 
   const handleRequestAccess = (e: React.FormEvent) => {
@@ -185,6 +255,16 @@ export const AuthGate: React.FC = () => {
           </button>
         </div>
 
+        {/* Logout Notice Banner */}
+        {logoutNotice && (
+          <div className="mx-6 mt-6 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start space-x-3">
+            <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            <div className="flex-1 leading-relaxed">
+              <strong className="font-bold">Session Terminated:</strong> {logoutNotice}
+            </div>
+          </div>
+        )}
+
         {/* Alerts / Error Messages */}
         {errorMsg && (
           <div className="mx-6 mt-6 p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-start space-x-3">
@@ -204,7 +284,49 @@ export const AuthGate: React.FC = () => {
           </div>
         )}
 
-        {/* TAB 1: Sign-In Form */}
+        {/* PENDING APPROVAL VIEW FOR CONCURRENT LOGIN */}
+        {pendingRequestInfo ? (
+          <div className="p-8 sm:p-10 space-y-6 text-center">
+            <div className="relative inline-block my-2">
+              <div className="w-20 h-20 rounded-full border-4 border-amber-500/20 border-t-amber-500 animate-spin mx-auto" />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <Lock className="w-8 h-8 text-amber-500 animate-pulse" />
+              </div>
+            </div>
+
+            <div className="space-y-2.5 max-w-md mx-auto">
+              <span className="px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-widest bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                Single Active Session Control
+              </span>
+              <h3 className="text-lg font-extrabold text-white tracking-tight">
+                Awaiting Active User Approval
+              </h3>
+              <p className="text-xs text-gray-300 leading-relaxed">
+                An active session is currently logged in under <strong className="text-amber-400 font-bold">{pendingRequestInfo.activeUser?.name || 'Active User'}</strong> ({pendingRequestInfo.activeUser?.role || 'Staff'}).
+              </p>
+              <div className="p-4 bg-black/60 border border-white/10 rounded-2xl text-[11px] text-gray-400 space-y-1 text-left">
+                <p className="font-semibold text-amber-300 flex items-center space-x-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Permission Request Transmitted</span>
+                </p>
+                <p>A high-priority prompt has been displayed on the active user's screen.</p>
+                <p>If accepted, the active user will be logged out and your session will commence automatically.</p>
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-center">
+              <button
+                type="button"
+                onClick={handleCancelRequest}
+                className="px-6 py-2.5 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white text-xs font-bold transition shadow-sm"
+              >
+                Cancel Login Request
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* TAB 1: Sign-In Form */}
         {activeTab === 'signin' && (
           <div className="p-6 sm:p-8 space-y-6">
             <form onSubmit={handleSignIn} className="space-y-5">
@@ -423,6 +545,8 @@ export const AuthGate: React.FC = () => {
               </button>
             </form>
           </div>
+        )}
+        </>
         )}
 
         {/* Footer Security Notice */}

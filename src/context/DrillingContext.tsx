@@ -17,7 +17,10 @@ import {
   MaterialRequisitionForm,
   RigMaterialCallout,
   RigBackloadList,
-  AuditTrailLog
+  RigBackloadItem,
+  AuditTrailLog,
+  ActiveSessionData,
+  ConcurrentLoginRequestData
 } from '../types/drilling';
 import { 
   INITIAL_ITEMS, 
@@ -48,8 +51,23 @@ interface DrillingContextType {
   currentUser: UserProfile;
   allUsers: UserProfile[];
   isAuthenticated: boolean;
-  loginUser: (userId: string, accessKey?: string) => { success: boolean; message: string };
-  logoutUser: () => void;
+  pendingLoginRequest: ConcurrentLoginRequestData | null;
+  logoutNotice: string | null;
+  setLogoutNotice: (notice: string | null) => void;
+  acceptConcurrentLoginRequest: (requestId: string) => void;
+  declineConcurrentLoginRequest: (requestId: string) => void;
+  loginUser: (
+    userId: string, 
+    accessKey?: string, 
+    options?: { overrideActiveSession?: boolean }
+  ) => { 
+    success: boolean; 
+    message: string; 
+    pendingRequest?: boolean; 
+    requestId?: string; 
+    activeUser?: { name: string; role: string } 
+  };
+  logoutUser: (reason?: string) => void;
   setCurrentUserRole: (role: UserRole) => void;
   registerUser: (newUser: { name: string; email: string; role: UserRole; department: string; location: LocationType; initialStatus?: UserAccountStatus }) => { success: boolean; message: string; user?: UserProfile };
   updateUserStatus: (userId: string, status: UserAccountStatus) => void;
@@ -259,7 +277,138 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return allUsers[0] || INITIAL_USERS[0];
   });
 
-  const loginUser = (userId: string, _accessKey?: string) => {
+  const [pendingLoginRequest, setPendingLoginRequest] = useState<ConcurrentLoginRequestData | null>(null);
+  const [logoutNotice, setLogoutNotice] = useState<string | null>(null);
+
+  // Active Session Heartbeat & Pending Request Polling
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+
+    if (isAuthenticated && currentUser) {
+      const syncSessionAndRequests = () => {
+        try {
+          // 1. Maintain active session heartbeat
+          const sessData: ActiveSessionData = {
+            userId: currentUser.id,
+            userName: currentUser.name,
+            userRole: currentUser.role,
+            userEmail: currentUser.email,
+            loginTime: Date.now(),
+            lastHeartbeat: Date.now(),
+          };
+          localStorage.setItem('drillcore_active_session', JSON.stringify(sessData));
+
+          // 2. Poll for incoming login requests
+          const rawReq = localStorage.getItem('drillcore_concurrent_login_request');
+          if (rawReq) {
+            const parsed: ConcurrentLoginRequestData = JSON.parse(rawReq);
+            if (parsed && parsed.status === 'PENDING') {
+              setPendingLoginRequest(parsed);
+            } else if (!parsed || parsed.status !== 'PENDING') {
+              setPendingLoginRequest(null);
+            }
+          } else {
+            setPendingLoginRequest(null);
+          }
+        } catch (err) {
+          console.warn('Session sync error:', err);
+        }
+      };
+
+      syncSessionAndRequests();
+      timer = setInterval(syncSessionAndRequests, 800);
+    } else {
+      setPendingLoginRequest(null);
+    }
+
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [isAuthenticated, currentUser]);
+
+  // Window Storage & BroadcastChannel Listener for Real-Time Sync Across Tabs
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'drillcore_concurrent_login_request' && e.newValue) {
+        try {
+          const parsed: ConcurrentLoginRequestData = JSON.parse(e.newValue);
+          if (parsed && parsed.status === 'PENDING' && isAuthenticated) {
+            setPendingLoginRequest(parsed);
+          }
+        } catch {}
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    let bc: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      bc = new BroadcastChannel('drillcore_session_channel');
+      bc.onmessage = (event) => {
+        if (event.data?.type === 'LOGIN_REQUEST_SUBMITTED' && isAuthenticated) {
+          if (event.data.request && event.data.request.status === 'PENDING') {
+            setPendingLoginRequest(event.data.request);
+          }
+        }
+      };
+    }
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      if (bc) bc.close();
+    };
+  }, [isAuthenticated]);
+
+  const acceptConcurrentLoginRequest = (reqId: string) => {
+    try {
+      const rawReq = localStorage.getItem('drillcore_concurrent_login_request');
+      if (rawReq) {
+        const parsed: ConcurrentLoginRequestData = JSON.parse(rawReq);
+        if (parsed.requestId === reqId) {
+          parsed.status = 'ACCEPTED';
+          localStorage.setItem('drillcore_concurrent_login_request', JSON.stringify(parsed));
+          if (typeof BroadcastChannel !== 'undefined') {
+            const bc = new BroadcastChannel('drillcore_session_channel');
+            bc.postMessage({ type: 'LOGIN_REQUEST_ACCEPTED', requestId: reqId });
+            bc.close();
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Accept request error:', e);
+    }
+
+    setPendingLoginRequest(null);
+    logoutUser('Your session was terminated because you accepted a concurrent login attempt.');
+  };
+
+  const declineConcurrentLoginRequest = (reqId: string) => {
+    try {
+      const rawReq = localStorage.getItem('drillcore_concurrent_login_request');
+      if (rawReq) {
+        const parsed: ConcurrentLoginRequestData = JSON.parse(rawReq);
+        if (parsed.requestId === reqId) {
+          parsed.status = 'DECLINED';
+          localStorage.setItem('drillcore_concurrent_login_request', JSON.stringify(parsed));
+          if (typeof BroadcastChannel !== 'undefined') {
+            const bc = new BroadcastChannel('drillcore_session_channel');
+            bc.postMessage({ type: 'LOGIN_REQUEST_DECLINED', requestId: reqId });
+            bc.close();
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Decline request error:', e);
+    }
+
+    setPendingLoginRequest(null);
+  };
+
+  const loginUser = (
+    userId: string, 
+    _accessKey?: string,
+    options?: { overrideActiveSession?: boolean }
+  ) => {
     const user = allUsers.find(
       u => u.id === userId || u.email.toLowerCase() === userId.toLowerCase()
     );
@@ -279,20 +428,89 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       return { success: false, message: 'Account is pending Administrator security review.' };
     }
 
+    // Concurrent Single Active Session Check
+    if (!options?.overrideActiveSession) {
+      try {
+        const rawSession = localStorage.getItem('drillcore_active_session');
+        if (rawSession) {
+          const activeSess: ActiveSessionData = JSON.parse(rawSession);
+          const isFresh = (Date.now() - (activeSess.lastHeartbeat || 0)) < 8000;
+
+          if (isFresh && activeSess.userId) {
+            const reqId = `REQ-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+            const reqData: ConcurrentLoginRequestData = {
+              requestId: reqId,
+              requestingUser: {
+                id: user.id,
+                name: user.name,
+                role: user.role,
+                email: user.email,
+              },
+              timestamp: Date.now(),
+              status: 'PENDING',
+            };
+
+            localStorage.setItem('drillcore_concurrent_login_request', JSON.stringify(reqData));
+
+            if (typeof BroadcastChannel !== 'undefined') {
+              const bc = new BroadcastChannel('drillcore_session_channel');
+              bc.postMessage({ type: 'LOGIN_REQUEST_SUBMITTED', request: reqData });
+              bc.close();
+            }
+
+            return {
+              success: false,
+              pendingRequest: true,
+              requestId: reqId,
+              activeUser: { name: activeSess.userName, role: activeSess.userRole },
+              message: `Single active session policy enforced. Permission prompt sent to ${activeSess.userName} (${activeSess.userRole}).`,
+            };
+          }
+        }
+      } catch (err) {
+        console.warn('Active session check error:', err);
+      }
+    }
+
+    // Clear previous login requests
+    try {
+      localStorage.removeItem('drillcore_concurrent_login_request');
+    } catch {}
+
     setCurrentUser(user);
     setIsAuthenticated(true);
+    setLogoutNotice(null);
+
+    const newSession: ActiveSessionData = {
+      userId: user.id,
+      userName: user.name,
+      userRole: user.role,
+      userEmail: user.email,
+      loginTime: Date.now(),
+      lastHeartbeat: Date.now(),
+    };
+
     try {
       localStorage.setItem('drillcore_auth_session', 'true');
       localStorage.setItem('drillcore_active_user_id', user.id);
+      localStorage.setItem('drillcore_active_session', JSON.stringify(newSession));
     } catch {}
 
     return { success: true, message: `Authenticated as ${user.name} (${user.role}).` };
   };
 
-  const logoutUser = () => {
+  const logoutUser = (reason?: string) => {
     setIsAuthenticated(false);
+    if (reason) {
+      setLogoutNotice(reason);
+    } else {
+      setLogoutNotice(null);
+    }
+
     try {
       localStorage.removeItem('drillcore_auth_session');
+      localStorage.removeItem('drillcore_active_session');
+      localStorage.removeItem('drillcore_active_user_id');
     } catch {}
   };
 
@@ -1760,6 +1978,11 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       currentUser,
       allUsers,
       isAuthenticated,
+      pendingLoginRequest,
+      logoutNotice,
+      setLogoutNotice,
+      acceptConcurrentLoginRequest,
+      declineConcurrentLoginRequest,
       loginUser,
       logoutUser,
       setCurrentUserRole,

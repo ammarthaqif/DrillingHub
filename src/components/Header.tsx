@@ -175,7 +175,7 @@ export const Header: React.FC<HeaderProps> = ({
                 ))}
                 <div className="mt-2 pt-2 border-t border-white/10 px-2">
                   <button
-                    onClick={logoutUser}
+                    onClick={() => logoutUser()}
                     className="w-full text-left px-3 py-2 text-xs font-semibold text-rose-400 hover:bg-rose-500/10 rounded-xl transition flex items-center space-x-2"
                   >
                     <LogOut className="w-4 h-4 text-rose-400" />
@@ -187,7 +187,7 @@ export const Header: React.FC<HeaderProps> = ({
 
             {/* Quick Lock Session Button */}
             <button
-              onClick={logoutUser}
+              onClick={() => logoutUser()}
               className="flex items-center space-x-1 px-2.5 py-1.5 text-xs font-medium rounded-xl bg-rose-500/10 text-rose-300 hover:bg-rose-500/20 border border-rose-500/30 transition"
               title="Lock Session / Exit Workspace"
             >
