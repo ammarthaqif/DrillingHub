@@ -163,6 +163,18 @@ interface DrillingContextType {
     }
   ) => void;
 
+  // Persistent Bulk Transfer Selection Across Tabs
+  selectedTubularIdsForTransfer: string[];
+  toggleTubularSelectionForTransfer: (id: string) => void;
+  setSelectedTubularIdsForTransfer: (ids: string[]) => void;
+  clearTubularSelectionForTransfer: () => void;
+  bulkAssignToBackloadManifest: (manifestId: string, itemIds: string[]) => void;
+
+  // Backload Automated Routing Engine & PO Attachment
+  autoRouteBackloadItems: (manifestId?: string, ageThresholdYears?: number) => void;
+  attachApprovedPOToItem: (itemId: string, poNumber: string, vendorName: string, serviceScope: string, costUsd?: number) => void;
+  attachApprovedPOToBackloadItem: (manifestId: string, itemTagNumber: string, poNumber: string, vendorName: string, serviceScope: string) => void;
+
   // Audit Trail System
   auditTrailLogs: AuditTrailLog[];
   logAuditTrail: (
@@ -1883,6 +1895,176 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }));
   };
 
+  // Persistent Bulk Selection Across Tabs
+  const [selectedTubularIdsForTransfer, setSelectedTubularIdsForTransfer] = useState<string[]>([]);
+
+  const toggleTubularSelectionForTransfer = (id: string) => {
+    setSelectedTubularIdsForTransfer(prev => 
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const clearTubularSelectionForTransfer = () => {
+    setSelectedTubularIdsForTransfer([]);
+  };
+
+  const bulkAssignToBackloadManifest = (manifestId: string, itemIds: string[]) => {
+    if (!manifestId || itemIds.length === 0) return;
+    const itemsToAssign = items.filter(i => itemIds.includes(i.id));
+    if (itemsToAssign.length === 0) return;
+
+    setRigBackloads(prev => prev.map(m => {
+      if (m.id === manifestId) {
+        const newBackloadItems: RigBackloadItem[] = itemsToAssign.map(i => {
+          const age = ((i.monthsAtYard || 0) / 12) || 1.0;
+          const isDirectDisposal = (i.monthsAtYard || 0) >= 36 || i.condition === 'Damaged / Reject';
+          return {
+            itemId: i.id,
+            tagNumber: i.tagNumber,
+            serialNumber: i.serialNumber,
+            heatNumber: i.heatNumber,
+            name: i.name,
+            category: i.category,
+            holeSection: i.holeSection,
+            outerDiameter: i.outerDiameter,
+            weightLbFt: i.weightLbFt,
+            grade: i.grade,
+            connectionType: i.connectionType,
+            lengthFt: i.lengthFt,
+            quantityJoints: i.quantityJoints,
+            conditionOnRig: i.condition,
+            reasonForBackload: i.condition === 'Damaged / Reject' ? 'Damaged / Reject' : 'Campaign Finished',
+            actionType: 'PENDING_DECISION',
+            routingQueue: isDirectDisposal ? 'DIRECT_DISPOSAL' : 'INSPECTION_REQUIRED',
+            ageYears: age,
+            routingReason: isDirectDisposal 
+              ? 'Age >= 3.0 yrs or damaged condition (Direct Scrap)' 
+              : 'Serviceable / Recertification Required',
+          };
+        });
+        return {
+          ...m,
+          items: [...m.items, ...newBackloadItems]
+        };
+      }
+      return m;
+    }));
+
+    logAuditTrail(
+      'CREATE_BACKLOAD_MANIFEST',
+      manifestId,
+      `Bulk assigned ${itemsToAssign.length} tubular items to backload manifest ${manifestId}.`
+    );
+    setSelectedTubularIdsForTransfer([]);
+  };
+
+  // Backload Automated Routing Engine & PO Attachment
+  const autoRouteBackloadItems = (manifestId?: string, ageThresholdYears: number = 3.0) => {
+    setRigBackloads(prev => prev.map(rbl => {
+      if (manifestId && rbl.id !== manifestId) return rbl;
+      const updatedItems = rbl.items.map(item => {
+        const age = item.ageYears || 1.5;
+        const isDamaged = item.conditionOnRig === 'Damaged / Reject' || item.reasonForBackload === 'Damaged / Reject';
+        const isOld = age >= ageThresholdYears;
+        
+        const queue: 'INSPECTION_REQUIRED' | 'DIRECT_DISPOSAL' = (isDamaged || isOld) ? 'DIRECT_DISPOSAL' : 'INSPECTION_REQUIRED';
+        const reason = isDamaged 
+          ? 'Damaged / Reject condition upon return' 
+          : isOld 
+          ? `Age ${age.toFixed(1)} yrs exceeds ${ageThresholdYears.toFixed(1)} yr disposal threshold` 
+          : `Age ${age.toFixed(1)} yrs within operational limit (NDT / Recertification required)`;
+
+        return {
+          ...item,
+          routingQueue: queue,
+          ageYears: age,
+          routingReason: reason,
+        };
+      });
+
+      return {
+        ...rbl,
+        items: updatedItems,
+      };
+    }));
+
+    logAuditTrail(
+      'SYSTEM_CONFIG_UPDATED',
+      manifestId || 'ALL_MANIFESTS',
+      `Executed automated age-based routing rules (Threshold: ${ageThresholdYears} yrs) across backload items.`
+    );
+  };
+
+  const attachApprovedPOToItem = (
+    itemId: string, 
+    poNumber: string, 
+    vendorName: string, 
+    serviceScope: string, 
+    costUsd?: number
+  ) => {
+    setItems(prev => prev.map(item => {
+      if (item.id === itemId || item.tagNumber === itemId) {
+        const updated = {
+          ...item,
+          poNumber,
+          poApproved: true,
+          vendorServicePoDetails: {
+            poNumber,
+            vendorName,
+            serviceScope,
+            approvedBy: currentUser.name,
+            approvedAt: new Date().toISOString(),
+            costUsd: costUsd || 5000,
+          },
+          updatedAt: new Date().toISOString(),
+        };
+        saveItemToFirestore(updated);
+        return updated;
+      }
+      return item;
+    }));
+
+    logAuditTrail(
+      'ITEM_UPDATED',
+      itemId,
+      `Approved PO #${poNumber} attached for vendor service (${vendorName} - ${serviceScope}).`
+    );
+  };
+
+  const attachApprovedPOToBackloadItem = (
+    manifestId: string, 
+    itemTagNumber: string, 
+    poNumber: string, 
+    vendorName: string, 
+    serviceScope: string
+  ) => {
+    setRigBackloads(prev => prev.map(rbl => {
+      if (rbl.id === manifestId) {
+        const updatedItems = rbl.items.map(i => {
+          if (i.tagNumber === itemTagNumber) {
+            return {
+              ...i,
+              poNumber,
+              poApproved: true,
+              poVendorName: vendorName,
+              poApprovedBy: currentUser.name,
+              actionNotes: `${i.actionNotes || ''} [Approved PO #${poNumber} for ${vendorName}: ${serviceScope}]`,
+            };
+          }
+          return i;
+        });
+        return { ...rbl, items: updatedItems };
+      }
+      return rbl;
+    }));
+
+    logAuditTrail(
+      'DISPOSITION_SENT_FOR_INSPECTION',
+      `${manifestId}:${itemTagNumber}`,
+      `Approved PO #${poNumber} verified for vendor service on ${itemTagNumber} (${vendorName}).`
+    );
+  };
+
   // Sync Queue
   const processSyncQueue = () => {
     setIsOffline(false);
@@ -2040,6 +2222,14 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       processBackloadActionAtBase,
       auditTrailLogs,
       logAuditTrail,
+      selectedTubularIdsForTransfer,
+      toggleTubularSelectionForTransfer,
+      setSelectedTubularIdsForTransfer,
+      clearTubularSelectionForTransfer,
+      bulkAssignToBackloadManifest,
+      autoRouteBackloadItems,
+      attachApprovedPOToItem,
+      attachApprovedPOToBackloadItem,
       searchQuery,
       setSearchQuery,
       selectedHoleSection,

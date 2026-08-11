@@ -155,6 +155,15 @@ export interface TubularItem {
   // Purchase, ERP & Tracking Identifiers
   cocNumber?: string; // Certificate of Conformance
   poNumber?: string; // Purchase Order #
+  poApproved?: boolean; // Approved PO flag for vendor service delivery
+  vendorServicePoDetails?: {
+    poNumber: string;
+    vendorName: string;
+    serviceScope: string;
+    approvedBy: string;
+    approvedAt: string;
+    costUsd?: number;
+  };
   doNumber?: string; // Delivery Order #
   wellChargeCode?: string; // Well / AFE Charge Code
   vismaNumber?: string; // VISMA ERP #
@@ -359,6 +368,17 @@ export interface RigBackloadItem {
   actionTakenAt?: string;
   actionTakenBy?: string;
   actionNotes?: string;
+  
+  // Automated Queue Routing (Age-Based Criteria)
+  routingQueue?: 'INSPECTION_REQUIRED' | 'DIRECT_DISPOSAL' | 'UNROUTED';
+  ageYears?: number;
+  routingReason?: string;
+
+  // Vendor Service Purchase Order (PO) Requirements
+  poNumber?: string;
+  poApproved?: boolean;
+  poVendorName?: string;
+  poApprovedBy?: string;
   
   // Inspection Action Details
   inspectionType?: 'NDT (Magnetic Particle)' | 'Visual Thread Inspection' | 'Full Length Ultrasonic' | 'Drift Test' | 'Torque & Bucking Test' | 'Hardbanding Repair' | 'Recertification';

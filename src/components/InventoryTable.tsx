@@ -23,6 +23,7 @@ import {
   CheckSquare,
   Building2,
   FileCheck,
+  History,
   X
 } from 'lucide-react';
 
@@ -79,14 +80,23 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
     bulkUpdateStatus,
     availableHoleSections,
     availableLocations,
-    availableMaintenanceStatuses
+    availableMaintenanceStatuses,
+    selectedTubularIdsForTransfer,
+    toggleTubularSelectionForTransfer,
+    setSelectedTubularIdsForTransfer,
+    clearTubularSelectionForTransfer,
+    rigBackloads,
+    bulkAssignToBackloadManifest
   } = useDrilling();
 
-  const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [isExcelModalOpen, setIsExcelModalOpen] = useState(false);
   const [isBulkStatusModalOpen, setIsBulkStatusModalOpen] = useState(false);
+  const [isBackloadModalOpen, setIsBackloadModalOpen] = useState(false);
+  const [selectedBackloadManifestId, setSelectedBackloadManifestId] = useState(rigBackloads[0]?.id || '');
   const [bulkStatusTarget, setBulkStatusTarget] = useState<MaintenanceStatus>('Serviceable (Field Ready)');
   const [bulkNotes, setBulkNotes] = useState('');
+
+  const selectedItemIds = selectedTubularIdsForTransfer;
 
   const handleApplyBulkStatus = (e: React.FormEvent) => {
     e.preventDefault();
@@ -94,21 +104,19 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
     bulkUpdateStatus(selectedItemIds, bulkStatusTarget, bulkNotes);
     setIsBulkStatusModalOpen(false);
     setBulkNotes('');
-    setSelectedItemIds([]);
+    clearTubularSelectionForTransfer();
   };
 
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) {
-      setSelectedItemIds(filteredItems.map(i => i.id));
+      setSelectedTubularIdsForTransfer(filteredItems.map(i => i.id));
     } else {
-      setSelectedItemIds([]);
+      clearTubularSelectionForTransfer();
     }
   };
 
   const handleToggleSelectItem = (id: string) => {
-    setSelectedItemIds(prev => 
-      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-    );
+    toggleTubularSelectionForTransfer(id);
   };
 
   const getStatusBadge = (status: MaintenanceStatus, nextDue: string) => {
@@ -259,12 +267,12 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
 
       </div>
 
-      {/* Bulk Action Bar if Items Selected */}
+      {/* Bulk Action Bar if Items Selected (Persists Across Tabs) */}
       {selectedItemIds.length > 0 && (
-        <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 shadow-lg">
           <div className="flex items-center space-x-2 text-xs text-amber-400 font-semibold">
             <CheckCircle2 className="w-4 h-4 text-amber-400" />
-            <span>{selectedItemIds.length} items selected for batch operation</span>
+            <span>{selectedItemIds.length} tubulars selected (Persists across navigation tabs)</span>
           </div>
           <div className="flex items-center space-x-2">
             <button
@@ -272,20 +280,27 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
               className="px-3.5 py-2 text-xs font-bold rounded-xl bg-cyan-500 text-black hover:bg-cyan-400 transition flex items-center space-x-1.5 shadow"
             >
               <CheckSquare className="w-3.5 h-3.5" />
-              <span>Bulk Status Update ({selectedItemIds.length})</span>
+              <span>Bulk Status ({selectedItemIds.length})</span>
             </button>
             <button
               onClick={() => onOpenTransferModalWithItems(selectedItemIds)}
               className="px-3.5 py-2 text-xs font-bold rounded-xl bg-amber-500 text-black hover:bg-amber-400 transition flex items-center space-x-1.5 shadow"
             >
               <Truck className="w-3.5 h-3.5" />
-              <span>Create Manifest ({selectedItemIds.length})</span>
+              <span>Assign to Vessel Manifest ({selectedItemIds.length})</span>
             </button>
             <button
-              onClick={() => setSelectedItemIds([])}
+              onClick={() => setIsBackloadModalOpen(true)}
+              className="px-3.5 py-2 text-xs font-bold rounded-xl bg-purple-500 text-white hover:bg-purple-400 transition flex items-center space-x-1.5 shadow"
+            >
+              <FileCheck className="w-3.5 h-3.5" />
+              <span>Assign to Backload Manifest ({selectedItemIds.length})</span>
+            </button>
+            <button
+              onClick={() => clearTubularSelectionForTransfer()}
               className="px-3 py-2 text-xs font-medium text-gray-400 hover:text-white"
             >
-              Deselect
+              Clear Selection
             </button>
           </div>
         </div>
@@ -408,13 +423,23 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
 
                       {/* Actions */}
                       <td className="p-4 text-right whitespace-nowrap">
-                        <button
-                          onClick={() => onSelectItem(item)}
-                          className="px-3 py-1.5 rounded-xl bg-white/5 text-amber-400 hover:bg-white/10 border border-white/10 transition font-semibold text-xs inline-flex items-center space-x-1.5"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>Details</span>
-                        </button>
+                        <div className="inline-flex items-center space-x-1.5">
+                          <button
+                            onClick={() => onSelectItem(item)}
+                            className="px-3 py-1.5 rounded-xl bg-white/5 text-amber-400 hover:bg-white/10 border border-white/10 transition font-semibold text-xs inline-flex items-center space-x-1.5"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Details</span>
+                          </button>
+                          <button
+                            onClick={() => onSelectItem(item)}
+                            title="View Chronological Change History"
+                            className="px-2.5 py-1.5 rounded-xl bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 border border-amber-500/30 transition font-semibold text-xs inline-flex items-center space-x-1"
+                          >
+                            <History className="w-3.5 h-3.5 text-amber-400" />
+                            <span>History</span>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -498,6 +523,68 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Backload Manifest Assignment Modal */}
+      {isBackloadModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="bg-[#111114] border border-white/10 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden text-xs text-gray-200">
+            <div className="p-4 border-b border-white/10 flex items-center justify-between bg-white/5">
+              <div className="flex items-center space-x-2">
+                <FileCheck className="w-5 h-5 text-purple-400" />
+                <h3 className="font-bold text-white text-sm">Bulk Assign to Backload Manifest</h3>
+              </div>
+              <button onClick={() => setIsBackloadModalOpen(false)} className="text-gray-400 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <p className="text-gray-300">
+                Bulk assigning <strong className="text-purple-400">{selectedItemIds.length}</strong> selected tubulars to an offshore rig return / backload manifest.
+              </p>
+
+              <div>
+                <label className="block text-gray-400 font-medium mb-1.5">Select Active Vessel / Backload Manifest</label>
+                <select
+                  value={selectedBackloadManifestId}
+                  onChange={(e) => setSelectedBackloadManifestId(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-purple-500 font-mono"
+                >
+                  {rigBackloads.map(rbl => (
+                    <option key={rbl.id} value={rbl.id} className="bg-[#141417]">
+                      {rbl.manifestNumber} - Vessel: {rbl.vesselName} ({rbl.rigLocation})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-3 text-[11px] text-purple-300">
+                <p><strong>Note:</strong> Items will be queued in the Backload Hub for automated age-based routing or manual inspection/disposal action.</p>
+              </div>
+
+              <div className="flex items-center justify-end space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsBackloadModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-gray-400 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    bulkAssignToBackloadManifest(selectedBackloadManifestId, selectedItemIds);
+                    setIsBackloadModalOpen(false);
+                  }}
+                  className="px-5 py-2 rounded-xl bg-purple-500 text-white font-semibold hover:bg-purple-400 transition"
+                >
+                  Confirm Bulk Assignment
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

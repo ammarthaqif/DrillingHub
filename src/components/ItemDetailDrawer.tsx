@@ -21,23 +21,29 @@ import {
   Building2,
   ArrowRightLeft,
   FileCheck2,
-  UserCheck
+  UserCheck,
+  History,
+  FileCheck,
+  Truck,
+  ShieldAlert
 } from 'lucide-react';
 
 interface ItemDetailDrawerProps {
   item: TubularItem | null;
   onClose: () => void;
   onEdit: (item: TubularItem) => void;
+  initialTab?: 'specs' | 'inspection' | 'maintenance' | 'surplus' | 'ownership' | 'history';
 }
 
 export const ItemDetailDrawer: React.FC<ItemDetailDrawerProps> = ({
   item,
   onClose,
   onEdit,
+  initialTab = 'specs',
 }) => {
-  const { addInspectionRecord, addMaintenanceLog, transferOwnership, deleteItem, currentUser } = useDrilling();
+  const { addInspectionRecord, addMaintenanceLog, transferOwnership, deleteItem, currentUser, auditTrailLogs, transfers, rigBackloads } = useDrilling();
 
-  const [activeTab, setActiveTab] = useState<'specs' | 'inspection' | 'maintenance' | 'surplus' | 'ownership'>('specs');
+  const [activeTab, setActiveTab] = useState<'specs' | 'inspection' | 'maintenance' | 'surplus' | 'ownership' | 'history'>(initialTab);
   
   // Ownership Transfer Form State
   const [showTransferModal, setShowTransferModal] = useState(false);
@@ -206,6 +212,15 @@ export const ItemDetailDrawer: React.FC<ItemDetailDrawerProps> = ({
           >
             <Building2 className="w-3.5 h-3.5 text-emerald-400" />
             <span>ERP & Ownership ({item.ownershipHistory?.length || 0})</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`px-3.5 py-2.5 text-xs font-semibold border-b-2 transition flex items-center space-x-1.5 ${
+              activeTab === 'history' ? 'border-amber-500 text-amber-400' : 'border-transparent text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            <History className="w-3.5 h-3.5 text-amber-400" />
+            <span>Change History</span>
           </button>
         </div>
 
@@ -767,6 +782,203 @@ export const ItemDetailDrawer: React.FC<ItemDetailDrawerProps> = ({
 
             </div>
           )}
+
+          {/* TAB 6: DETAILED CHANGE HISTORY & AUDIT TRAIL TIMELINE */}
+          {activeTab === 'history' && (() => {
+            // Aggregate all history logs
+            const historyItems: Array<{
+              id: string;
+              timestamp: string;
+              title: string;
+              category: 'STATUS_CHANGE' | 'MOVEMENT' | 'INSPECTION' | 'MAINTENANCE' | 'OWNERSHIP' | 'BACKLOAD' | 'AUDIT';
+              user: string;
+              role?: string;
+              location?: string;
+              details: string;
+              notes?: string;
+              badgeColor?: string;
+            }> = [];
+
+            // 1. Audit Trail Logs
+            auditTrailLogs.forEach(log => {
+              if (
+                log.referenceId === item.tagNumber || 
+                log.referenceId === item.id || 
+                log.details.includes(item.tagNumber) || 
+                (item.serialNumber && log.details.includes(item.serialNumber))
+              ) {
+                historyItems.push({
+                  id: `audit-${log.id}`,
+                  timestamp: log.formattedTimestamp || log.timestamp,
+                  title: log.actionType.replace(/_/g, ' '),
+                  category: 'AUDIT',
+                  user: log.userName,
+                  role: log.userRole,
+                  location: log.location,
+                  details: log.details,
+                  notes: log.notes,
+                  badgeColor: 'bg-purple-500/20 text-purple-300 border-purple-500/30',
+                });
+              }
+            });
+
+            // 2. Material Transfers
+            transfers.forEach(tr => {
+              const matchedItem = tr.items.find(i => i.tagNumber === item.tagNumber || i.itemId === item.id);
+              if (matchedItem) {
+                historyItems.push({
+                  id: `mtt-${tr.id}`,
+                  timestamp: tr.createdDate,
+                  title: `Material Transfer (${tr.manifestNumber})`,
+                  category: 'MOVEMENT',
+                  user: tr.senderName,
+                  role: tr.senderRole,
+                  location: `${tr.originLocation} → ${tr.destinationLocation}`,
+                  details: `Dispatched via ${tr.carrierType} (${tr.carrierName}). Condition: ${matchedItem.conditionAtDispatch}`,
+                  notes: tr.notes,
+                  badgeColor: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
+                });
+                if (tr.receiverValidatedAt) {
+                  historyItems.push({
+                    id: `mtt-rec-${tr.id}`,
+                    timestamp: tr.receiverValidatedAt,
+                    title: `Transfer Verified & Received (${tr.manifestNumber})`,
+                    category: 'MOVEMENT',
+                    user: tr.receiverName || 'Receiver',
+                    role: tr.receiverRole,
+                    location: tr.destinationLocation,
+                    details: `Verified at destination. Condition at receipt: ${matchedItem.conditionAtReceipt || matchedItem.conditionAtDispatch}`,
+                    notes: matchedItem.discrepancyNote,
+                    badgeColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+                  });
+                }
+              }
+            });
+
+            // 3. Inspections
+            item.inspectionHistory.forEach(insp => {
+              historyItems.push({
+                id: `insp-${insp.id}`,
+                timestamp: insp.date,
+                title: `${insp.inspectionType} - ${insp.result}`,
+                category: 'INSPECTION',
+                user: insp.inspectorName,
+                details: `Cert #: ${insp.certNumber} | Next Due: ${insp.nextInspectionDue}`,
+                notes: insp.remarks,
+                badgeColor: insp.result === 'Pass' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-rose-500/20 text-rose-300 border-rose-500/30',
+              });
+            });
+
+            // 4. Maintenance Logs
+            item.maintenanceLogs.forEach(maint => {
+              historyItems.push({
+                id: `maint-${maint.id}`,
+                timestamp: maint.date,
+                title: maint.action,
+                category: 'MAINTENANCE',
+                user: maint.performedBy,
+                details: `Maintenance / Service action performed at base or yard.`,
+                notes: maint.notes,
+                badgeColor: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+              });
+            });
+
+            // 5. Ownership History
+            (item.ownershipHistory || []).forEach(own => {
+              historyItems.push({
+                id: `own-${own.id}`,
+                timestamp: own.transferDate,
+                title: `Ownership Reallocated: ${own.previousProjectOwner} → ${own.newProjectOwner}`,
+                category: 'OWNERSHIP',
+                user: own.approvedBy,
+                details: `Reason: ${own.transferReason} | Charge Code: ${own.wellChargeCode}`,
+                notes: own.notes,
+                badgeColor: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
+              });
+            });
+
+            // 6. Backload Lists
+            rigBackloads.forEach(rbl => {
+              const matchedBackload = rbl.items.find(bi => bi.tagNumber === item.tagNumber);
+              if (matchedBackload) {
+                historyItems.push({
+                  id: `rbl-${rbl.id}`,
+                  timestamp: rbl.createdDate,
+                  title: `Rig Backload Dispatched (${rbl.manifestNumber})`,
+                  category: 'BACKLOAD',
+                  user: rbl.preparedBy,
+                  location: rbl.rigLocation,
+                  details: `Backloaded via vessel ${rbl.vesselName}. Reason: ${matchedBackload.reasonForBackload}. Condition: ${matchedBackload.conditionOnRig}`,
+                  notes: matchedBackload.actionNotes,
+                  badgeColor: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+                });
+              }
+            });
+
+            // Sort history by date descending
+            historyItems.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+            return (
+              <div className="space-y-4">
+                <div className="bg-white/5 border border-white/5 rounded-xl p-4 flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center space-x-2">
+                      <History className="w-4 h-4 text-amber-400" />
+                      <span>Item Chronological Audit & Movement Timeline</span>
+                    </h3>
+                    <p className="text-[11px] text-gray-400 mt-0.5">
+                      Integrated log of all past status changes, physical location transfers, QA/QC NDT inspections, and system audit events for <strong className="text-amber-400">{item.tagNumber}</strong>.
+                    </p>
+                  </div>
+                  <span className="px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                    {historyItems.length} Events
+                  </span>
+                </div>
+
+                {historyItems.length === 0 ? (
+                  <div className="p-8 text-center text-gray-500 bg-white/5 rounded-xl border border-white/5 italic">
+                    No change history logs found for this item.
+                  </div>
+                ) : (
+                  <div className="relative pl-6 space-y-4 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-white/10">
+                    {historyItems.map((log) => (
+                      <div key={log.id} className="relative group">
+                        {/* Timeline dot */}
+                        <div className="absolute -left-6 top-1.5 w-3 h-3 rounded-full bg-amber-500 border-2 border-[#111114] shadow" />
+
+                        <div className="bg-white/5 border border-white/10 hover:border-white/20 p-3.5 rounded-xl space-y-1.5 transition">
+                          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 pb-2">
+                            <div className="flex items-center space-x-2">
+                              <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded border uppercase tracking-wider ${log.badgeColor}`}>
+                                {log.category}
+                              </span>
+                              <span className="font-bold text-white text-xs">{log.title}</span>
+                            </div>
+                            <span className="text-[10px] font-mono text-gray-400">{log.timestamp}</span>
+                          </div>
+
+                          <div className="text-[11px] text-gray-300 space-y-0.5">
+                            <p className="leading-relaxed">{log.details}</p>
+                            
+                            <div className="flex flex-wrap items-center gap-3 text-[10px] text-gray-400 pt-1">
+                              {log.user && <span><strong>User:</strong> {log.user} {log.role ? `(${log.role})` : ''}</span>}
+                              {log.location && <span><strong>Location:</strong> {log.location}</span>}
+                            </div>
+                          </div>
+
+                          {log.notes && (
+                            <p className="text-[10px] text-gray-400 bg-black/40 p-2 rounded-lg border border-white/5 italic mt-1">
+                              "{log.notes}"
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
         </div>
 

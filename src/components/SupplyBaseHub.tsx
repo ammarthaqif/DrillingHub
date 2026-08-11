@@ -23,7 +23,12 @@ import {
   ListFilter,
   Trash2,
   AlertCircle,
-  Timer
+  Timer,
+  FileText,
+  X,
+  Sparkles,
+  ShieldAlert,
+  Sliders
 } from 'lucide-react';
 
 export const SupplyBaseHub: React.FC = () => {
@@ -39,6 +44,9 @@ export const SupplyBaseHub: React.FC = () => {
     receiveRigBackloadAtSupplyBase,
     confirmVesselArrivalAtBase,
     processBackloadActionAtBase,
+    autoRouteBackloadItems,
+    attachApprovedPOToItem,
+    attachApprovedPOToBackloadItem,
     availableLocations,
     availableCarrierTypes
   } = useDrilling();
@@ -51,8 +59,31 @@ export const SupplyBaseHub: React.FC = () => {
 
   // Backload Processing State
   const [backloadSearchQuery, setBackloadSearchQuery] = useState('');
+  const [routingQueueFilter, setRoutingQueueFilter] = useState<'ALL' | 'INSPECTION_REQUIRED' | 'DIRECT_DISPOSAL'>('ALL');
+  const [ageThresholdYears, setAgeThresholdYears] = useState<number>(3.0);
   const [actionNotesMap, setActionNotesMap] = useState<Record<string, string>>({});
   const [quaysideArrivalNotes, setQuaysideArrivalNotes] = useState<Record<string, string>>({});
+
+  // Approved PO Verification Modal State
+  const [poModal, setPoModal] = useState<{
+    isOpen: boolean;
+    itemId?: string;
+    manifestId?: string;
+    itemTagNumber?: string;
+    vendorName: string;
+    serviceScope: string;
+    isBackload: boolean;
+  }>({
+    isOpen: false,
+    vendorName: 'Global OCTG Inspection & Testing Co.',
+    serviceScope: 'NDT Full-Length Inspection & Thread Recutting',
+    isBackload: false,
+  });
+
+  const [poNumberInput, setPoNumberInput] = useState('PO-2026-VEND-8840');
+  const [poVendorInput, setPoVendorInput] = useState('Global OCTG Inspection & Testing Co.');
+  const [poServiceScopeInput, setPoServiceScopeInput] = useState('NDT Full-Length Inspection & Thread Recutting');
+  const [poCostInput, setPoCostInput] = useState<number>(4850);
 
   // Base Yard Filtered Items
   const yardItems = items.filter(i => i.currentLocation === 'Main Supply Base Yard');
@@ -318,18 +349,47 @@ export const SupplyBaseHub: React.FC = () => {
                     </td>
 
                     <td className="p-3 text-right">
-                      <button
-                        onClick={() => {
-                          updateItem(item.id, {
-                            currentLocation: 'Machine Shop & Testing Facility',
-                            rackLocation: 'Vendor Machine Shop Bay 1',
-                            status: 'In Refurbishment'
-                          });
-                        }}
-                        className="px-2.5 py-1 rounded bg-white/10 hover:bg-white/20 text-gray-200 text-[11px] font-semibold border border-white/10 transition"
-                      >
-                        Send to Vendor Shop
-                      </button>
+                      {item.poApproved ? (
+                        <div className="inline-flex flex-col items-end space-y-1">
+                          <span className="text-[10px] text-emerald-400 font-mono font-bold flex items-center space-x-1">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                            <span>PO Approved: {item.poNumber || 'PO-2026-VEND'}</span>
+                          </span>
+                          <button
+                            onClick={() => {
+                              updateItem(item.id, {
+                                currentLocation: 'Machine Shop & Testing Facility',
+                                rackLocation: 'Vendor Machine Shop Bay 1',
+                                status: 'In Refurbishment'
+                              });
+                            }}
+                            className="px-2.5 py-1 rounded bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-bold shadow transition"
+                          >
+                            Dispatch to Vendor Shop
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            setPoNumberInput(`PO-2026-VEND-${Math.floor(1000 + Math.random() * 9000)}`);
+                            setPoVendorInput('Global OCTG Inspection & Machine Shop');
+                            setPoServiceScopeInput('Thread Recutting & NDT Inspection');
+                            setPoCostInput(4850);
+                            setPoModal({
+                              isOpen: true,
+                              itemId: item.id,
+                              vendorName: 'Global OCTG Inspection & Machine Shop',
+                              serviceScope: 'Thread Recutting & NDT Inspection',
+                              isBackload: false,
+                            });
+                          }}
+                          className="px-2.5 py-1 rounded bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white text-[11px] font-bold border border-rose-500/40 transition flex items-center space-x-1"
+                          title="Approved PO Required prior to dispatching item to service provider"
+                        >
+                          <ShieldAlert className="w-3 h-3 text-rose-400" />
+                          <span>Attach Approved PO & Send</span>
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -521,10 +581,10 @@ export const SupplyBaseHub: React.FC = () => {
             <div>
               <h3 className="text-sm font-bold text-white flex items-center space-x-2">
                 <PackageCheck className="w-4 h-4 text-amber-400" />
-                <span>Rig Backload Quayside Receipt & Timeliness KPI Action Center</span>
+                <span>Rig Backload Quayside Receipt & Automated Routing Engine</span>
               </h3>
               <p className="text-xs text-gray-400 mt-0.5">
-                Reference backload manifests / tracking numbers upon vessel arrival, track preset KPI action timeliness, and process items for inspection, disposal, or storage.
+                Automatically route backloaded items into <strong className="text-amber-300">Inspection Required</strong> or <strong className="text-rose-400">Direct to Disposal</strong> queues based on age-based criteria and PO compliance.
               </p>
             </div>
 
@@ -538,6 +598,85 @@ export const SupplyBaseHub: React.FC = () => {
                 placeholder="Search manifest #, vessel, tag..."
                 className="bg-black/60 border border-white/10 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500 w-64"
               />
+            </div>
+          </div>
+
+          {/* Automated Routing Controls & Queue Filter Toolbar */}
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center space-x-2">
+                <Sparkles className="w-4 h-4 text-amber-400" />
+                <span className="text-xs font-bold text-white">Automated Age-Based Routing Engine</span>
+                <span className="text-[10px] text-gray-400 font-mono bg-black/40 px-2 py-0.5 rounded border border-white/10">
+                  Threshold: ≥ {ageThresholdYears} Years ({ageThresholdYears * 12} Mos) → Disposal
+                </span>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-1 text-xs text-gray-300 bg-black/40 px-3 py-1 rounded-xl border border-white/10">
+                  <Sliders className="w-3.5 h-3.5 text-amber-400" />
+                  <label className="text-[11px] text-gray-400 mr-1">Disposal Age Limit:</label>
+                  <select
+                    value={ageThresholdYears}
+                    onChange={(e) => setAgeThresholdYears(parseFloat(e.target.value))}
+                    className="bg-transparent text-amber-300 font-mono font-bold focus:outline-none cursor-pointer"
+                  >
+                    <option value={2.0} className="bg-[#141417]">2.0 Years (24 Mos)</option>
+                    <option value={3.0} className="bg-[#141417]">3.0 Years (36 Mos)</option>
+                    <option value={4.0} className="bg-[#141417]">4.0 Years (48 Mos)</option>
+                    <option value={5.0} className="bg-[#141417]">5.0 Years (60 Mos)</option>
+                  </select>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => autoRouteBackloadItems(undefined, ageThresholdYears)}
+                  className="px-3.5 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black text-xs font-extrabold rounded-xl shadow transition flex items-center space-x-1.5"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Run Auto-Routing Rules Now</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Queue Filter Buttons */}
+            <div className="flex items-center space-x-2 pt-1 border-t border-white/5">
+              <span className="text-[11px] text-gray-400 font-medium mr-1">Routed Queue View:</span>
+              <button
+                type="button"
+                onClick={() => setRoutingQueueFilter('ALL')}
+                className={`px-3 py-1 rounded-xl text-xs font-bold transition ${
+                  routingQueueFilter === 'ALL'
+                    ? 'bg-amber-500 text-black'
+                    : 'bg-black/40 text-gray-300 hover:bg-white/5 border border-white/10'
+                }`}
+              >
+                All Backload Queue Items
+              </button>
+              <button
+                type="button"
+                onClick={() => setRoutingQueueFilter('INSPECTION_REQUIRED')}
+                className={`px-3 py-1 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 ${
+                  routingQueueFilter === 'INSPECTION_REQUIRED'
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/50 shadow'
+                    : 'bg-black/40 text-gray-300 hover:bg-white/5 border border-white/10'
+                }`}
+              >
+                <Wrench className="w-3.5 h-3.5 text-amber-400" />
+                <span>🛠️ Inspection Required Queue</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRoutingQueueFilter('DIRECT_DISPOSAL')}
+                className={`px-3 py-1 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 ${
+                  routingQueueFilter === 'DIRECT_DISPOSAL'
+                    ? 'bg-rose-500/20 text-rose-300 border border-rose-500/50 shadow'
+                    : 'bg-black/40 text-gray-300 hover:bg-white/5 border border-white/10'
+                }`}
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                <span>🗑️ Direct to Disposal Queue</span>
+              </button>
             </div>
           </div>
 
@@ -628,97 +767,160 @@ export const SupplyBaseHub: React.FC = () => {
                       </div>
 
                       <div className="divide-y divide-white/5 border border-white/10 rounded-xl overflow-hidden bg-black/20">
-                        {rbl.items.map((item, idx) => {
-                          const actionDone = item.actionType && item.actionType !== 'PENDING_DECISION';
+                        {rbl.items
+                          .filter(item => {
+                            if (routingQueueFilter === 'ALL') return true;
+                            if (routingQueueFilter === 'INSPECTION_REQUIRED') {
+                              return !item.routingQueue || item.routingQueue === 'INSPECTION_REQUIRED';
+                            }
+                            if (routingQueueFilter === 'DIRECT_DISPOSAL') {
+                              return item.routingQueue === 'DIRECT_DISPOSAL';
+                            }
+                            return true;
+                          })
+                          .map((item, idx) => {
+                            const actionDone = item.actionType && item.actionType !== 'PENDING_DECISION';
+                            const queue = item.routingQueue || ((item.ageYears || 1.5) >= ageThresholdYears || item.conditionOnRig === 'Damaged / Reject' ? 'DIRECT_DISPOSAL' : 'INSPECTION_REQUIRED');
 
-                          return (
-                            <div key={idx} className="p-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3 hover:bg-white/[0.02]">
-                              
-                              {/* Left: Item Spec & Tag */}
-                              <div className="space-y-1 max-w-md">
-                                <div className="flex items-center space-x-2">
-                                  <span className="font-mono font-extrabold text-amber-400 text-xs">{item.tagNumber}</span>
-                                  {item.serialNumber && (
-                                    <span className="font-mono text-[10px] text-gray-400">({item.serialNumber})</span>
-                                  )}
-                                  <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold ${
-                                    item.conditionOnRig === 'Damaged / Reject' ? 'bg-rose-500/20 text-rose-300' : 'bg-emerald-500/20 text-emerald-300'
-                                  }`}>
-                                    {item.conditionOnRig}
-                                  </span>
-                                </div>
-                                <p className="text-xs font-semibold text-white">{item.name}</p>
-                                <p className="text-[11px] text-gray-400">
-                                  Reason for Backload: <strong className="text-amber-300">{item.reasonForBackload}</strong> • Joint Count: <strong className="text-white font-mono">{item.quantityJoints} Jts</strong>
-                                </p>
-                              </div>
-
-                              {/* Right: Next Course of Action Decision Buttons */}
-                              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0">
-                                {actionDone ? (
-                                  <div className="p-2 rounded-lg bg-white/5 border border-white/10 text-right">
-                                    <span className={`text-[10px] uppercase font-extrabold px-2 py-0.5 rounded ${
-                                      item.actionType === 'SENT_FOR_INSPECTION' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
-                                      item.actionType === 'SENT_FOR_DISPOSAL' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' :
-                                      'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                            return (
+                              <div key={idx} className="p-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3 hover:bg-white/[0.02]">
+                                
+                                {/* Left: Item Spec, Tag & Routing Queue Metadata */}
+                                <div className="space-y-1 max-w-md">
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className="font-mono font-extrabold text-amber-400 text-xs">{item.tagNumber}</span>
+                                    {item.serialNumber && (
+                                      <span className="font-mono text-[10px] text-gray-400">({item.serialNumber})</span>
+                                    )}
+                                    <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold ${
+                                      item.conditionOnRig === 'Damaged / Reject' ? 'bg-rose-500/20 text-rose-300' : 'bg-emerald-500/20 text-emerald-300'
                                     }`}>
-                                      Action: {item.actionType?.replace(/_/g, ' ')}
+                                      {item.conditionOnRig}
                                     </span>
-                                    {item.actionTakenBy && (
-                                      <p className="text-[9px] text-gray-400 font-mono mt-1">
-                                        Processed by {item.actionTakenBy} @ {item.actionTakenAt ? new Date(item.actionTakenAt).toLocaleTimeString() : ''}
-                                      </p>
+
+                                    {/* Auto-Routing Queue Badge */}
+                                    <span className={`text-[9px] px-2 py-0.2 rounded font-bold uppercase tracking-wider flex items-center space-x-1 border ${
+                                      queue === 'DIRECT_DISPOSAL' 
+                                        ? 'bg-rose-500/20 text-rose-300 border-rose-500/30' 
+                                        : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                                    }`}>
+                                      {queue === 'DIRECT_DISPOSAL' ? <Trash2 className="w-2.5 h-2.5 text-rose-400 inline mr-0.5" /> : <Wrench className="w-2.5 h-2.5 text-amber-400 inline mr-0.5" />}
+                                      <span>Queue: {queue === 'DIRECT_DISPOSAL' ? 'Direct Disposal' : 'Inspection Required'}</span>
+                                    </span>
+                                  </div>
+
+                                  <p className="text-xs font-semibold text-white">{item.name}</p>
+
+                                  <div className="text-[10px] text-gray-400 flex flex-wrap items-center gap-2">
+                                    <span>Reason: <strong className="text-amber-300">{item.reasonForBackload}</strong></span>
+                                    <span>• Joint Count: <strong className="text-white font-mono">{item.quantityJoints} Jts</strong></span>
+                                    <span>• Age: <strong className="text-cyan-300 font-mono">{(item.ageYears || 1.5).toFixed(1)} Yrs</strong></span>
+                                    {item.routingReason && (
+                                      <span className="italic text-gray-500">({item.routingReason})</span>
                                     )}
                                   </div>
-                                ) : (
-                                  <div className="flex flex-wrap items-center gap-1.5">
-                                    {/* Action 1: Send to Inspection */}
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        processBackloadActionAtBase(
-                                          rbl.id,
-                                          item.tagNumber,
-                                          'SENT_FOR_INSPECTION',
-                                          {
-                                            inspectionFacility: 'Machine Shop & Testing Facility',
-                                            notes: 'Sent to vendor machine shop for NDT inspection and thread recutting.'
-                                          }
-                                        );
-                                      }}
-                                      className="px-2.5 py-1.5 bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/40 rounded-lg text-xs font-bold transition flex items-center space-x-1"
-                                      title="Send for NDT inspection prior to yard storage"
-                                    >
-                                      <Wrench className="w-3 h-3" />
-                                      <span>1. Send to Inspection</span>
-                                    </button>
 
-                                    {/* Action 2: Send for Disposal */}
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        processBackloadActionAtBase(
-                                          rbl.id,
-                                          item.tagNumber,
-                                          'SENT_FOR_DISPOSAL',
-                                          {
-                                            disposalYardLocation: 'Scrap Yard / Disposal',
-                                            notes: 'Classified as rejected beyond economic repair. Disposed/scrapped.'
-                                          }
-                                        );
-                                      }}
-                                      className="px-2.5 py-1.5 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white border border-rose-500/40 rounded-lg text-xs font-bold transition flex items-center space-x-1"
-                                      title="Send straight for scrapping and disposal"
-                                    >
-                                      <Trash2 className="w-3 h-3" />
-                                      <span>2. Send for Disposal</span>
-                                    </button>
+                                  {/* Approved PO Badge status */}
+                                  <div className="pt-0.5">
+                                    {item.poApproved ? (
+                                      <span className="text-[10px] text-emerald-400 font-mono font-bold flex items-center space-x-1">
+                                        <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                                        <span>Approved Service PO: {item.poNumber} ({item.poVendorName || 'Verified Vendor'})</span>
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] text-amber-400 font-mono flex items-center space-x-1">
+                                        <AlertTriangle className="w-3 h-3 text-amber-400" />
+                                        <span>Vendor Service PO Required prior to inspection delivery</span>
+                                      </span>
+                                    )}
                                   </div>
-                                )}
+                                </div>
+
+                                {/* Right: Next Course of Action Decision Buttons */}
+                                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0">
+                                  {actionDone ? (
+                                    <div className="p-2 rounded-lg bg-white/5 border border-white/10 text-right">
+                                      <span className={`text-[10px] uppercase font-extrabold px-2 py-0.5 rounded ${
+                                        item.actionType === 'SENT_FOR_INSPECTION' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
+                                        item.actionType === 'SENT_FOR_DISPOSAL' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' :
+                                        'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                      }`}>
+                                        Action: {item.actionType?.replace(/_/g, ' ')}
+                                      </span>
+                                      {item.actionTakenBy && (
+                                        <p className="text-[9px] text-gray-400 font-mono mt-1">
+                                          Processed by {item.actionTakenBy} @ {item.actionTakenAt ? new Date(item.actionTakenAt).toLocaleTimeString() : ''}
+                                        </p>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                      {/* Action 1: Send to Inspection (Requires Approved PO) */}
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (!item.poApproved) {
+                                            setPoNumberInput(`PO-2026-VEND-${Math.floor(1000 + Math.random() * 9000)}`);
+                                            setPoVendorInput('Global OCTG Inspection & Testing Co.');
+                                            setPoServiceScopeInput('NDT EMI & Thread Recertification');
+                                            setPoCostInput(5200);
+                                            setPoModal({
+                                              isOpen: true,
+                                              manifestId: rbl.id,
+                                              itemTagNumber: item.tagNumber,
+                                              vendorName: 'Global OCTG Inspection & Testing Co.',
+                                              serviceScope: 'NDT EMI & Thread Recertification',
+                                              isBackload: true,
+                                            });
+                                          } else {
+                                            processBackloadActionAtBase(
+                                              rbl.id,
+                                              item.tagNumber,
+                                              'SENT_FOR_INSPECTION',
+                                              {
+                                                inspectionFacility: item.poVendorName || 'Machine Shop & Testing Facility',
+                                                notes: `Sent to service provider under Approved PO #${item.poNumber}.`
+                                              }
+                                            );
+                                          }
+                                        }}
+                                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1 ${
+                                          item.poApproved
+                                            ? 'bg-amber-500 hover:bg-amber-400 text-black shadow'
+                                            : 'bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/40'
+                                        }`}
+                                        title={item.poApproved ? 'Approved PO verified - Dispatch to Vendor Inspection' : 'Attach Approved PO prior to sending for service'}
+                                      >
+                                        <Wrench className="w-3 h-3" />
+                                        <span>{item.poApproved ? '1. Dispatch for Inspection' : '1. Attach PO & Send for Inspection'}</span>
+                                      </button>
+
+                                      {/* Action 2: Send for Disposal */}
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          processBackloadActionAtBase(
+                                            rbl.id,
+                                            item.tagNumber,
+                                            'SENT_FOR_DISPOSAL',
+                                            {
+                                              disposalYardLocation: 'Scrap Yard / Disposal',
+                                              notes: 'Classified as rejected beyond economic repair. Disposed/scrapped.'
+                                            }
+                                          );
+                                        }}
+                                        className="px-2.5 py-1.5 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white border border-rose-500/40 rounded-lg text-xs font-bold transition flex items-center space-x-1"
+                                        title="Send straight for scrapping and disposal"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                        <span>2. Direct to Disposal</span>
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          );
-                        })}
+                            );
+                          })}
                       </div>
                     </div>
 
@@ -735,6 +937,131 @@ export const SupplyBaseHub: React.FC = () => {
                   </div>
                 );
               })}
+          </div>
+        </div>
+      )}
+
+      {/* Approved Purchase Order (PO) Compliance Modal */}
+      {poModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="bg-[#111114] border border-white/10 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden text-xs text-gray-200">
+            <div className="p-4 border-b border-white/10 flex items-center justify-between bg-white/5">
+              <div className="flex items-center space-x-2">
+                <FileText className="w-5 h-5 text-amber-400" />
+                <h3 className="font-bold text-white text-sm">Service Provider Approved PO Verification</h3>
+              </div>
+              <button 
+                onClick={() => setPoModal(prev => ({ ...prev, isOpen: false }))} 
+                className="text-gray-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (poModal.isBackload && poModal.manifestId && poModal.itemTagNumber) {
+                  attachApprovedPOToBackloadItem(
+                    poModal.manifestId,
+                    poModal.itemTagNumber,
+                    poNumberInput,
+                    poVendorInput,
+                    poServiceScopeInput,
+                    poCostInput
+                  );
+                } else if (poModal.itemId) {
+                  attachApprovedPOToItem(
+                    poModal.itemId,
+                    poNumberInput,
+                    poVendorInput,
+                    poServiceScopeInput,
+                    poCostInput
+                  );
+                  // Also move item to machine shop facility
+                  updateItem(poModal.itemId, {
+                    currentLocation: 'Machine Shop & Testing Facility',
+                    rackLocation: 'Vendor Machine Shop Bay 1',
+                    status: 'In Refurbishment'
+                  });
+                }
+                setPoModal(prev => ({ ...prev, isOpen: false }));
+              }}
+              className="p-5 space-y-4"
+            >
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-amber-300 text-[11px] flex items-start space-x-2">
+                <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold">Governance Rule Enforced:</p>
+                  <p className="text-gray-300">
+                    Any inspection or added services (repair, threading, recutting) must be accompanied by an approved Purchase Order (PO) prior to delivery to respective service providers.
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-gray-400 font-medium mb-1">Approved Purchase Order (PO) Number</label>
+                <input
+                  type="text"
+                  required
+                  value={poNumberInput}
+                  onChange={(e) => setPoNumberInput(e.target.value)}
+                  placeholder="e.g. PO-2026-VEND-8840"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-gray-400 font-medium mb-1">Service Provider / Vendor</label>
+                  <input
+                    type="text"
+                    required
+                    value={poVendorInput}
+                    onChange={(e) => setPoVendorInput(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-gray-400 font-medium mb-1">Estimated / Approved Cost ($)</label>
+                  <input
+                    type="number"
+                    required
+                    value={poCostInput}
+                    onChange={(e) => setPoCostInput(parseFloat(e.target.value) || 0)}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-gray-400 font-medium mb-1">Service Scope & Deliverables</label>
+                <textarea
+                  rows={2}
+                  value={poServiceScopeInput}
+                  onChange={(e) => setPoServiceScopeInput(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-end space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setPoModal(prev => ({ ...prev, isOpen: false }))}
+                  className="px-4 py-2 rounded-xl text-gray-400 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-amber-500 text-black font-extrabold hover:bg-amber-400 transition flex items-center space-x-1.5"
+                >
+                  <ShieldCheck className="w-4 h-4 text-black" />
+                  <span>Verify Approved PO & Dispatch</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
