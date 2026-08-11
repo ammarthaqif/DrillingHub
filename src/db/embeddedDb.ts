@@ -289,10 +289,46 @@ class EmbeddedRealtimeDatabase {
     }
   }
 
+  // Save Audit Logs snapshot
+  public async saveAuditLogs(logs: any[]) {
+    try {
+      localStorage.setItem('drillspec_audit_logs', JSON.stringify(logs));
+    } catch (e) {
+      console.warn('Error saving audit logs', e);
+    }
+  }
+
+  // Save Backload manifests snapshot
+  public async saveBackloads(backloads: any[]) {
+    try {
+      localStorage.setItem('drillspec_backloads', JSON.stringify(backloads));
+    } catch (e) {
+      console.warn('Error saving backloads', e);
+    }
+  }
+
   // Loaders
   public loadItems(): TubularItem[] | null {
     try {
       const raw = localStorage.getItem('drillspec_items');
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  public loadAuditLogs(): any[] | null {
+    try {
+      const raw = localStorage.getItem('drillspec_audit_logs');
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  public loadBackloads(): any[] | null {
+    try {
+      const raw = localStorage.getItem('drillspec_backloads');
       return raw ? JSON.parse(raw) : null;
     } catch {
       return null;

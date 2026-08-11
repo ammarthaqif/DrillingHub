@@ -312,25 +312,92 @@ export interface RigMaterialCallout {
   preparedBySupplyBaseMatco?: string;
 }
 
+export type BackloadActionType = 'PENDING_DECISION' | 'SENT_FOR_INSPECTION' | 'SENT_FOR_DISPOSAL' | 'STORED_IN_YARD';
+
+export type BackloadKpiStatus = 'On Track' | 'Near Breach' | 'SLA Breached' | 'Completed On Time' | 'Completed Overdue';
+
 export interface RigBackloadItem {
   itemId?: string;
   tagNumber: string;
+  serialNumber?: string;
+  heatNumber?: string;
   name: string;
+  category?: ItemCategory;
+  holeSection?: HoleSection;
+  outerDiameter?: string;
+  weightLbFt?: string;
+  grade?: string;
+  connectionType?: string;
+  lengthFt?: number;
   quantityJoints: number;
   conditionOnRig: EquipmentCondition;
-  reasonForBackload: 'Campaign Finished' | 'Damaged Thread / BHA' | 'Inspection Due' | 'Excess Stock';
+  reasonForBackload: 'Campaign Finished' | 'Damaged Thread / BHA' | 'Inspection Due' | 'Excess Stock' | 'Damaged / Reject';
+  
+  // Next course of action taken by Matco Base / Warehouseman
+  actionType?: BackloadActionType;
+  actionTakenAt?: string;
+  actionTakenBy?: string;
+  actionNotes?: string;
+  
+  // Inspection Action Details
+  inspectionType?: 'NDT (Magnetic Particle)' | 'Visual Thread Inspection' | 'Full Length Ultrasonic' | 'Drift Test' | 'Torque & Bucking Test' | 'Hardbanding Repair' | 'Recertification';
+  inspectionFacility?: string;
+  
+  // Disposal Action Details
+  scrapCertId?: string;
+  disposalReason?: string;
+  disposalYardLocation?: string;
 }
 
 export interface RigBackloadList {
-  id: string; // e.g. RBL-2026-012
+  id: string; // e.g. RBL-2026-012 or BLM-2026-8841
   manifestNumber: string;
   createdDate: string;
+  createdTimestamp?: string;
   rigLocation: LocationType;
   preparedBy: string; // Rig Toolpusher / Matco
   vesselName: string;
+  vesselEta?: string; // Estimated arrival time e.g. "2026-08-11T16:00"
+  vesselArrivedAt?: string; // Actual arrival timestamp
   items: RigBackloadItem[];
-  status: 'Dispatched from Rig' | 'Received at Supply Base Quay' | 'Reconciled & Racked';
+  status: 'Dispatched from Rig' | 'Arrived at Supply Base Quay' | 'Received at Supply Base Quay' | 'Action Completed (Inspected)' | 'Action Completed (Disposed)' | 'Reconciled & Racked';
   receivedBySupplyBaseMatco?: string;
   quaysideInspectionNotes?: string;
+
+  // Preset KPI Timeliness Tracking
+  kpiSlaTargetHours: number; // e.g., 24 or 48 hours default preset KPI
+  slaDeadlineTime?: string; // Calculated deadline by when next action MUST be performed
+  actionCompletedAt?: string; // Timestamp when next action was processed
+  kpiStatus?: BackloadKpiStatus;
+}
+
+export interface AuditTrailLog {
+  id: string;
+  timestamp: string; // ISO String
+  formattedTimestamp: string; // Readable e.g. "2026-08-11 14:02:11 UTC"
+  userId: string;
+  userName: string;
+  userRole: UserRole;
+  location: LocationType;
+  actionType: 
+    | 'CREATE_BACKLOAD_MANIFEST'
+    | 'VESSEL_ARRIVAL_CONFIRMED'
+    | 'DISPOSITION_SENT_FOR_INSPECTION'
+    | 'DISPOSITION_SENT_FOR_DISPOSAL'
+    | 'ITEM_CREATED'
+    | 'ITEM_UPDATED'
+    | 'OWNERSHIP_TRANSFERRED'
+    | 'MATERIAL_TRANSFER_DISPATCHED'
+    | 'MATERIAL_TRANSFER_RECEIVED'
+    | 'INSPECTION_RECORDED'
+    | 'USER_PROFILE_UPDATED'
+    | 'USER_REGISTERED'
+    | 'USER_STATUS_UPDATED'
+    | 'USER_ROLE_UPDATED'
+    | 'USER_DELETED'
+    | 'SYSTEM_CONFIG_UPDATED';
+  referenceId: string; // e.g. Manifest # "BLM-2026-8841", Item # "CSG-1338-001"
+  details: string;
+  notes?: string;
 }
 

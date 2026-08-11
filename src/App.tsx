@@ -54,15 +54,9 @@ const MainAppContent: React.FC = () => {
     processSyncQueue
   } = useDrilling();
 
-  if (!isAuthenticated) {
-    return <AuthGate />;
-  }
-
   const [activeNav, setActiveNav] = useState<
     'dashboard' | 'inventory' | 'drillingEngineer' | 'supplyBaseMatco' | 'rigSiteMatco' | 'checkAndBalance' | 'holeSection' | 'surplus' | 'movement' | 'audit' | 'admin'
   >('dashboard');
-
-  const pendingApprovalsCount = allUsers.filter(u => u.status === 'Pending Email Verification' || u.status === 'Pending Admin Approval').length;
 
   // Modal / Drawer States
   const [selectedItemForDrawer, setSelectedItemForDrawer] = useState<TubularItem | null>(null);
@@ -75,6 +69,12 @@ const MainAppContent: React.FC = () => {
   const [isAlertsModalOpen, setIsAlertsModalOpen] = useState(false);
   const [isScannerModalOpen, setIsScannerModalOpen] = useState(false);
   const [isAiAuditModalOpen, setIsAiAuditModalOpen] = useState(false);
+
+  if (!isAuthenticated) {
+    return <AuthGate />;
+  }
+
+  const pendingApprovalsCount = allUsers.filter(u => u.status === 'Pending Email Verification' || u.status === 'Pending Admin Approval').length;
 
   const handleOpenTransferModalWithItems = (itemIds: string[]) => {
     setTransferModalItemIds(itemIds);

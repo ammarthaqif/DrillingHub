@@ -16,7 +16,8 @@ import {
   SurplusBookingRequest,
   MaterialRequisitionForm,
   RigMaterialCallout,
-  RigBackloadList
+  RigBackloadList,
+  AuditTrailLog
 } from '../types/drilling';
 import { 
   INITIAL_ITEMS, 
@@ -25,7 +26,8 @@ import {
   INITIAL_SURPLUS_BOOKINGS,
   INITIAL_REQUISITIONS,
   INITIAL_RIG_CALLOUTS,
-  INITIAL_RIG_BACKLOADS
+  INITIAL_RIG_BACKLOADS,
+  INITIAL_AUDIT_LOGS
 } from '../data/initialData';
 import { 
   embeddedDb, 
@@ -128,6 +130,30 @@ interface DrillingContextType {
   rigBackloads: RigBackloadList[];
   createRigBackload: (backload: Omit<RigBackloadList, 'id'>) => void;
   receiveRigBackloadAtSupplyBase: (manifestId: string, inspectionNotes: string) => void;
+  confirmVesselArrivalAtBase: (manifestId: string, arrivalNotes?: string) => void;
+  processBackloadActionAtBase: (
+    manifestId: string,
+    itemTagNumber: string,
+    actionType: 'SENT_FOR_INSPECTION' | 'SENT_FOR_DISPOSAL',
+    details: {
+      inspectionType?: 'NDT (Magnetic Particle)' | 'Visual Thread Inspection' | 'Full Length Ultrasonic' | 'Drift Test' | 'Torque & Bucking Test' | 'Hardbanding Repair' | 'Recertification';
+      inspectionFacility?: string;
+      scrapCertId?: string;
+      disposalReason?: string;
+      disposalYardLocation?: string;
+      notes?: string;
+    }
+  ) => void;
+
+  // Audit Trail System
+  auditTrailLogs: AuditTrailLog[];
+  logAuditTrail: (
+    actionType: AuditTrailLog['actionType'],
+    referenceId: string,
+    details: string,
+    notes?: string,
+    userOverride?: { id: string; name: string; role: UserRole; location: LocationType }
+  ) => void;
 
   // Filters & Views
   searchQuery: string;
@@ -293,7 +319,47 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [surplusBookings, setSurplusBookings] = useState<SurplusBookingRequest[]>(INITIAL_SURPLUS_BOOKINGS);
   const [materialRequisitions, setMaterialRequisitions] = useState<MaterialRequisitionForm[]>(INITIAL_REQUISITIONS);
   const [rigCallouts, setRigCallouts] = useState<RigMaterialCallout[]>(INITIAL_RIG_CALLOUTS);
-  const [rigBackloads, setRigBackloads] = useState<RigBackloadList[]>(INITIAL_RIG_BACKLOADS);
+  const [rigBackloads, setRigBackloads] = useState<RigBackloadList[]>(() => {
+    return embeddedDb.loadBackloads() || INITIAL_RIG_BACKLOADS;
+  });
+
+  // Audit Trail System
+  const [auditTrailLogs, setAuditTrailLogs] = useState<AuditTrailLog[]>(() => {
+    return embeddedDb.loadAuditLogs() || INITIAL_AUDIT_LOGS;
+  });
+
+  useEffect(() => {
+    embeddedDb.saveAuditLogs(auditTrailLogs);
+  }, [auditTrailLogs]);
+
+  useEffect(() => {
+    embeddedDb.saveBackloads(rigBackloads);
+  }, [rigBackloads]);
+
+  const logAuditTrail = (
+    actionType: AuditTrailLog['actionType'],
+    referenceId: string,
+    details: string,
+    notes?: string,
+    userOverride?: { id: string; name: string; role: UserRole; location: LocationType }
+  ) => {
+    const user = userOverride || currentUser;
+    const now = new Date();
+    const newLog: AuditTrailLog = {
+      id: `audit-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+      timestamp: now.toISOString(),
+      formattedTimestamp: now.toISOString().replace('T', ' ').slice(0, 19) + ' UTC',
+      userId: user?.id || 'usr-anonymous',
+      userName: user?.name || 'Personnel User',
+      userRole: user?.role || 'Materials Coordinator (Supply Base)',
+      location: user?.location || 'Main Supply Base Yard',
+      actionType,
+      referenceId,
+      details,
+      notes,
+    };
+    setAuditTrailLogs(prev => [newLog, ...prev]);
+  };
 
   // Workflow Handlers
   const createSurplusBooking = (reqData: Omit<SurplusBookingRequest, 'id' | 'createdAt' | 'status'>) => {
@@ -395,34 +461,205 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const createRigBackload = (backloadData: Omit<RigBackloadList, 'id'>) => {
+    const nowIso = new Date().toISOString();
     const newBackload: RigBackloadList = {
       ...backloadData,
       id: `rbl-${Math.floor(100 + Math.random() * 900)}`,
+      createdTimestamp: nowIso,
+      kpiSlaTargetHours: backloadData.kpiSlaTargetHours || 24,
+      kpiStatus: 'On Track',
     };
     setRigBackloads(prev => [newBackload, ...prev]);
 
     // Update items location to transit
     backloadData.items.forEach(it => {
-      updateItem(it.itemId, {
-        currentLocation: 'In Transit (Supply Vessel)',
-        rackLocation: 'Vessel Cargo Deck',
-        status: it.conditionOnRig === 'Damaged / Reject' ? 'Quarantined / Damaged' : 'Due for Inspection'
-      });
+      if (it.itemId) {
+        updateItem(it.itemId, {
+          currentLocation: 'In Transit (Supply Vessel)',
+          rackLocation: `Vessel Deck (${backloadData.vesselName})`,
+          status: it.conditionOnRig === 'Damaged / Reject' ? 'Quarantined / Damaged' : 'Due for Inspection'
+        });
+      }
     });
+
+    logAuditTrail(
+      'CREATE_BACKLOAD_MANIFEST',
+      newBackload.manifestNumber,
+      `Issued Backload Manifest ${newBackload.manifestNumber} with ${backloadData.items.length} tubular line item(s) via ${backloadData.vesselName}. Target SLA: ${newBackload.kpiSlaTargetHours} Hours.`
+    );
+  };
+
+  const confirmVesselArrivalAtBase = (manifestId: string, arrivalNotes?: string) => {
+    const now = new Date();
+    const nowIso = now.toISOString();
+
+    setRigBackloads(prev => prev.map(rbl => {
+      if (rbl.id !== manifestId && rbl.manifestNumber !== manifestId) return rbl;
+
+      const slaHours = rbl.kpiSlaTargetHours || 24;
+      const deadline = new Date(now.getTime() + slaHours * 3600 * 1000).toISOString();
+
+      // Update items location to Main Supply Base Yard
+      rbl.items.forEach(it => {
+        if (it.itemId) {
+          updateItem(it.itemId, {
+            currentLocation: 'Main Supply Base Yard',
+            rackLocation: 'Quayside Backload Holding Bay',
+            status: it.conditionOnRig === 'Damaged / Reject' ? 'Quarantined / Damaged' : 'Due for Inspection'
+          });
+        }
+      });
+
+      logAuditTrail(
+        'VESSEL_ARRIVAL_CONFIRMED',
+        rbl.manifestNumber,
+        `Vessel ${rbl.vesselName} confirmed arrived at Supply Base Quay. Started ${slaHours}h SLA countdown clock (Deadline: ${deadline.replace('T', ' ').slice(0, 19)} UTC).`,
+        arrivalNotes
+      );
+
+      return {
+        ...rbl,
+        status: 'Arrived at Supply Base Quay',
+        vesselArrivedAt: nowIso,
+        slaDeadlineTime: deadline,
+        receivedBySupplyBaseMatco: `${currentUser.name} (${currentUser.role})`,
+        quaysideInspectionNotes: arrivalNotes || 'Vessel arrived at quay berth. Tally landed at quayside staging area.',
+        kpiStatus: 'On Track',
+      };
+    }));
+  };
+
+  const processBackloadActionAtBase = (
+    manifestId: string,
+    itemTagNumber: string,
+    actionType: 'SENT_FOR_INSPECTION' | 'SENT_FOR_DISPOSAL',
+    details: {
+      inspectionType?: 'NDT (Magnetic Particle)' | 'Visual Thread Inspection' | 'Full Length Ultrasonic' | 'Drift Test' | 'Torque & Bucking Test' | 'Hardbanding Repair' | 'Recertification';
+      inspectionFacility?: string;
+      scrapCertId?: string;
+      disposalReason?: string;
+      disposalYardLocation?: string;
+      notes?: string;
+    }
+  ) => {
+    const now = new Date();
+    const nowIso = now.toISOString();
+
+    setRigBackloads(prev => prev.map(rbl => {
+      if (rbl.id !== manifestId && rbl.manifestNumber !== manifestId) return rbl;
+
+      const updatedItems = rbl.items.map(it => {
+        if (it.tagNumber !== itemTagNumber) return it;
+
+        const updatedIt: RigBackloadItem = {
+          ...it,
+          actionType,
+          actionTakenAt: nowIso,
+          actionTakenBy: `${currentUser.name} (${currentUser.role})`,
+          actionNotes: details.notes,
+        };
+
+        if (actionType === 'SENT_FOR_INSPECTION') {
+          updatedIt.inspectionType = details.inspectionType || 'NDT (Magnetic Particle)';
+          updatedIt.inspectionFacility = details.inspectionFacility || 'Machine Shop & Testing Facility';
+
+          // Update inventory item in database
+          const foundItem = items.find(i => i.tagNumber === itemTagNumber || i.id === it.itemId);
+          if (foundItem) {
+            updateItem(foundItem.id, {
+              currentLocation: (details.inspectionFacility as any) || 'Machine Shop & Testing Facility',
+              rackLocation: 'Testing Shop Bay 1',
+              status: 'In Refurbishment',
+              notes: `Dispatched for ${updatedIt.inspectionType} per Backload Manifest ${rbl.manifestNumber}`
+            });
+          }
+        } else if (actionType === 'SENT_FOR_DISPOSAL') {
+          updatedIt.scrapCertId = details.scrapCertId || `SCRAP-CERT-2026-${Math.floor(100 + Math.random() * 900)}`;
+          updatedIt.disposalReason = details.disposalReason || 'Beyond Economical Repair';
+          updatedIt.disposalYardLocation = details.disposalYardLocation || 'Heavy Metal Scrap Yard Zone E';
+
+          // Update inventory item in database
+          const foundItem = items.find(i => i.tagNumber === itemTagNumber || i.id === it.itemId);
+          if (foundItem) {
+            updateItem(foundItem.id, {
+              currentLocation: 'Main Supply Base Yard',
+              rackLocation: updatedIt.disposalYardLocation,
+              status: 'Scrapped',
+              condition: 'Damaged / Reject',
+              notes: `Scrapped under Cert #${updatedIt.scrapCertId} (${updatedIt.disposalReason})`
+            });
+          }
+        }
+
+        return updatedIt;
+      });
+
+      // Check if all items in this backload manifest have had an action decided
+      const allActionsChosen = updatedItems.every(i => i.actionType && i.actionType !== 'PENDING_DECISION');
+      let newStatus = rbl.status;
+      let actionCompletedAt = rbl.actionCompletedAt;
+      let kpiStatus = rbl.kpiStatus;
+
+      if (allActionsChosen) {
+        actionCompletedAt = nowIso;
+        const hasInspection = updatedItems.some(i => i.actionType === 'SENT_FOR_INSPECTION');
+        newStatus = hasInspection ? 'Action Completed (Inspected)' : 'Action Completed (Disposed)';
+
+        // Calculate KPI SLA Compliance
+        if (rbl.slaDeadlineTime) {
+          const deadlineMs = new Date(rbl.slaDeadlineTime).getTime();
+          if (now.getTime() <= deadlineMs) {
+            kpiStatus = 'Completed On Time';
+          } else {
+            kpiStatus = 'Completed Overdue';
+          }
+        } else {
+          kpiStatus = 'Completed On Time';
+        }
+      }
+
+      const actionLabel = actionType === 'SENT_FOR_INSPECTION' 
+        ? `Sent for Inspection (${details.inspectionType || 'NDT'}) at ${details.inspectionFacility}` 
+        : `Sent for Scrap Disposal (Cert #${details.scrapCertId || 'SCRAP-CERT'})`;
+
+      logAuditTrail(
+        actionType === 'SENT_FOR_INSPECTION' ? 'DISPOSITION_SENT_FOR_INSPECTION' : 'DISPOSITION_SENT_FOR_DISPOSAL',
+        rbl.manifestNumber,
+        `Processed disposition for backloaded item ${itemTagNumber}: ${actionLabel}.`,
+        details.notes
+      );
+
+      return {
+        ...rbl,
+        items: updatedItems,
+        status: newStatus,
+        actionCompletedAt,
+        kpiStatus,
+      };
+    }));
   };
 
   const receiveRigBackloadAtSupplyBase = (manifestId: string, inspectionNotes: string) => {
     setRigBackloads(prev => prev.map(rbl => {
-      if (rbl.id !== manifestId) return rbl;
+      if (rbl.id !== manifestId && rbl.manifestNumber !== manifestId) return rbl;
 
       // Update item locations back to Main Supply Base Yard
       rbl.items.forEach(it => {
-        updateItem(it.itemId, {
-          currentLocation: 'Main Supply Base Yard',
-          rackLocation: 'Quayside Backload Holding Bay',
-          status: 'Due for Inspection'
-        });
+        if (it.itemId) {
+          updateItem(it.itemId, {
+            currentLocation: 'Main Supply Base Yard',
+            rackLocation: 'Quayside Backload Holding Bay',
+            status: it.conditionOnRig === 'Damaged / Reject' ? 'Quarantined / Damaged' : 'Due for Inspection'
+          });
+        }
       });
+
+      logAuditTrail(
+        'MATERIAL_TRANSFER_RECEIVED',
+        rbl.manifestNumber,
+        `Reconciled & racked backload manifest ${rbl.manifestNumber} into Base Yard inventory.`,
+        inspectionNotes
+      );
 
       return {
         ...rbl,
@@ -650,6 +887,13 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setAllUsers(prev => [...prev, userRecord]);
     saveUserToFirestore(userRecord);
 
+    logAuditTrail(
+      'USER_REGISTERED',
+      userId,
+      `Registered user account ${newUser.name} (${newUser.email}) with role '${newUser.role}' at '${newUser.location}'.`,
+      `Initial Status: ${initialStatus}`
+    );
+
     if (!isApproved) {
       const emailRecord: VerificationEmailRecord = {
         id: `email-${Date.now()}`,
@@ -676,6 +920,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const updateUserStatus = (userId: string, status: UserAccountStatus) => {
+    const target = allUsers.find(u => u.id === userId);
     setAllUsers(prev => prev.map(u => {
       if (u.id === userId) {
         const updated = {
@@ -688,9 +933,19 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
       return u;
     }));
+
+    if (target) {
+      logAuditTrail(
+        'USER_STATUS_UPDATED',
+        userId,
+        `Updated account status for ${target.name} (${target.email}) from '${target.status}' to '${status}'.`,
+        `Updated by ${currentUser?.name || 'Admin'}`
+      );
+    }
   };
 
   const updateUserRole = (userId: string, role: UserRole) => {
+    const target = allUsers.find(u => u.id === userId);
     setAllUsers(prev => prev.map(u => {
       if (u.id === userId) {
         const updated = { ...u, role };
@@ -699,6 +954,15 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
       return u;
     }));
+
+    if (target) {
+      logAuditTrail(
+        'USER_ROLE_UPDATED',
+        userId,
+        `Updated role for ${target.name} (${target.email}) from '${target.role}' to '${role}'.`,
+        `Updated by ${currentUser?.name || 'Admin'}`
+      );
+    }
   };
 
   const updateUser = (userId: string, updates: Partial<UserProfile>) => {
@@ -721,6 +985,14 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
 
     saveUserToFirestore(updatedUser);
+
+    logAuditTrail(
+      'USER_PROFILE_UPDATED',
+      userId,
+      `Modified user profile details for ${updatedUser.name} (${updatedUser.email}).`,
+      `Updated fields: ${Object.keys(updates).join(', ')}`
+    );
+
     return { success: true, message: `User ${updatedUser.name} (${updatedUser.email}) successfully updated.` };
   };
 
@@ -746,6 +1018,13 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (!isOffline && db) {
       deleteDoc(doc(db, 'users', userId)).catch(err => console.error('Firestore deleteUser error:', err));
     }
+
+    logAuditTrail(
+      'USER_DELETED',
+      userId,
+      `Permanently removed user account ${target.name} (${target.email}) from database.`,
+      `Removed by ${currentUser?.name || 'Admin'}`
+    );
 
     return { success: true, message: `User ${target.name} (${target.email}) permanently removed from database.` };
   };
@@ -1534,6 +1813,10 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       rigBackloads,
       createRigBackload,
       receiveRigBackloadAtSupplyBase,
+      confirmVesselArrivalAtBase,
+      processBackloadActionAtBase,
+      auditTrailLogs,
+      logAuditTrail,
       searchQuery,
       setSearchQuery,
       selectedHoleSection,

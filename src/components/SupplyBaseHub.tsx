@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useDrilling } from '../context/DrillingContext';
-import { LocationType, MaintenanceStatus, EquipmentCondition, TubularItem, MaterialTransferTicket } from '../types/drilling';
+import { LocationType, MaintenanceStatus, EquipmentCondition, TubularItem, MaterialTransferTicket, BackloadActionType } from '../types/drilling';
 import { 
   Building2, 
   Truck, 
@@ -20,7 +20,10 @@ import {
   Layers, 
   Anchor,
   FileCheck2,
-  ListFilter
+  ListFilter,
+  Trash2,
+  AlertCircle,
+  Timer
 } from 'lucide-react';
 
 export const SupplyBaseHub: React.FC = () => {
@@ -34,6 +37,8 @@ export const SupplyBaseHub: React.FC = () => {
     validateReceiverArrival,
     rigBackloads,
     receiveRigBackloadAtSupplyBase,
+    confirmVesselArrivalAtBase,
+    processBackloadActionAtBase,
     availableLocations,
     availableCarrierTypes
   } = useDrilling();
@@ -43,6 +48,11 @@ export const SupplyBaseHub: React.FC = () => {
   // Search & Filters for Yard Inventory
   const [yardQuery, setYardQuery] = useState('');
   const [selectedRackZone, setSelectedRackZone] = useState<string>('ALL');
+
+  // Backload Processing State
+  const [backloadSearchQuery, setBackloadSearchQuery] = useState('');
+  const [actionNotesMap, setActionNotesMap] = useState<Record<string, string>>({});
+  const [quaysideArrivalNotes, setQuaysideArrivalNotes] = useState<Record<string, string>>({});
 
   // Base Yard Filtered Items
   const yardItems = items.filter(i => i.currentLocation === 'Main Supply Base Yard');
@@ -504,74 +514,250 @@ export const SupplyBaseHub: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 4: RIG BACKLOAD RECEIPT & QUAYSIDE RECONCILIATION */}
+      {/* TAB 4: RIG BACKLOAD RECEIPT & QUAYSIDE ACTION CENTER */}
       {activeTab === 'backloadReceipt' && (
         <div className="bg-[#111114] border border-white/10 rounded-2xl p-6 shadow-lg space-y-5">
-          <div className="border-b border-white/10 pb-4">
-            <h3 className="text-sm font-bold text-white flex items-center space-x-2">
-              <PackageCheck className="w-4 h-4 text-amber-400" />
-              <span>Rig Backload Receipt & Quayside Tally Center</span>
-            </h3>
-            <p className="text-xs text-gray-400 mt-0.5">
-              Receive incoming backloaded equipment from offshore supply vessels, conduct quayside condition inspection, and reconcile into base yard inventory.
-            </p>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
+            <div>
+              <h3 className="text-sm font-bold text-white flex items-center space-x-2">
+                <PackageCheck className="w-4 h-4 text-amber-400" />
+                <span>Rig Backload Quayside Receipt & Timeliness KPI Action Center</span>
+              </h3>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Reference backload manifests / tracking numbers upon vessel arrival, track preset KPI action timeliness, and process items for inspection, disposal, or storage.
+              </p>
+            </div>
+
+            {/* Backload Manifest Search */}
+            <div className="relative shrink-0">
+              <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                value={backloadSearchQuery}
+                onChange={(e) => setBackloadSearchQuery(e.target.value)}
+                placeholder="Search manifest #, vessel, tag..."
+                className="bg-black/60 border border-white/10 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500 w-64"
+              />
+            </div>
           </div>
 
-          <div className="space-y-4">
-            {rigBackloads.map((rbl) => (
-              <div key={rbl.id} className="p-5 rounded-2xl bg-black/40 border border-white/10 space-y-4 shadow-md">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/5 pb-3">
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <span className="font-mono font-bold text-amber-400 text-xs">{rbl.manifestNumber}</span>
-                      <span className="text-xs text-white font-bold">{rbl.vesselName}</span>
-                    </div>
-                    <p className="text-[11px] text-gray-400 mt-0.5">
-                      Origin: <strong>{rbl.rigLocation}</strong> • Prepared By: <strong>{rbl.preparedBy}</strong> • Date: {rbl.createdDate}
-                    </p>
-                  </div>
+          <div className="space-y-5">
+            {rigBackloads
+              .filter(rbl => {
+                if (!backloadSearchQuery.trim()) return true;
+                const q = backloadSearchQuery.toLowerCase();
+                return (
+                  rbl.manifestNumber.toLowerCase().includes(q) ||
+                  rbl.vesselName.toLowerCase().includes(q) ||
+                  rbl.items.some(i => i.tagNumber.toLowerCase().includes(q) || i.name.toLowerCase().includes(q))
+                );
+              })
+              .map((rbl) => {
+                const isArrived = rbl.status.includes('Arrived') || rbl.vesselArrivalTimestamp;
+                const isActionCompleted = rbl.status === 'Action Completed' || rbl.status === 'Reconciled & Racked';
 
-                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 self-start sm:self-auto">
-                    {rbl.status}
-                  </span>
-                </div>
-
-                {/* Backload Line Items */}
-                <div className="space-y-2">
-                  <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Backloaded Line Items:</p>
-                  {rbl.items.map((item, idx) => (
-                    <div key={idx} className="p-3 rounded-xl bg-white/5 border border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                return (
+                  <div key={rbl.id} className="p-5 rounded-2xl bg-black/40 border border-white/10 space-y-4 shadow-md">
+                    
+                    {/* Manifest Header & Timeliness KPI Status */}
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-white/10 pb-3">
                       <div>
-                        <span className="font-bold text-amber-400 font-mono">{item.tagNumber}</span> - <span className="text-white">{item.name}</span>
+                        <div className="flex items-center space-x-2">
+                          <span className="font-mono font-extrabold text-amber-400 text-sm">{rbl.manifestNumber}</span>
+                          <span className="text-xs text-white font-bold bg-white/10 px-2 py-0.5 rounded">
+                            <Ship className="w-3 h-3 inline mr-1 text-cyan-400" />
+                            {rbl.vesselName}
+                          </span>
+                          <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                            isActionCompleted ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
+                            isArrived ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' :
+                            'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                          }`}>
+                            {rbl.status}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-gray-400 mt-1">
+                          Origin: <strong>{rbl.rigLocation}</strong> • Dispatched By: <strong>{rbl.preparedBy}</strong> ({rbl.createdDate})
+                        </p>
                       </div>
-                      <div className="flex items-center space-x-3 text-gray-400">
-                        <span>Condition: <strong className="text-white">{item.conditionOnRig}</strong></span>
-                        <span>Reason: <strong className="text-emerald-400">{item.reasonForBackload}</strong></span>
-                        <span className="font-bold text-white font-mono bg-white/10 px-2 py-0.5 rounded">{item.quantityJoints} Jts</span>
+
+                      {/* Timeliness KPI Badge */}
+                      <div className="flex items-center space-x-3 bg-black/50 p-2.5 rounded-xl border border-white/10 shrink-0">
+                        <Timer className="w-4 h-4 text-amber-400 shrink-0" />
+                        <div className="text-xs">
+                          <div className="flex items-center space-x-1">
+                            <span className="text-gray-400 text-[10px]">Preset SLA Target:</span>
+                            <span className="font-mono font-bold text-amber-300">{rbl.kpiSlaTargetHours || 24} Hours</span>
+                          </div>
+                          <div className="flex items-center space-x-1 mt-0.5">
+                            <span className="text-gray-400 text-[10px]">KPI SLA Status:</span>
+                            <span className={`font-bold text-[11px] ${
+                              rbl.kpiStatus === 'Completed On Time' ? 'text-emerald-400' :
+                              rbl.kpiStatus === 'SLA Breached' ? 'text-rose-400' :
+                              rbl.kpiStatus === 'Arrived at Quay - SLA Active' ? 'text-cyan-300 animate-pulse' :
+                              'text-amber-300'
+                            }`}>
+                              {rbl.kpiStatus || 'In Transit'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Vessel Quayside Arrival Trigger */}
+                        {!isArrived && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const notes = quaysideArrivalNotes[rbl.id] || 'Vessel berthed at Base Quay 2. Quayside inspection initiated.';
+                              confirmVesselArrivalAtBase(rbl.id, notes);
+                            }}
+                            className="px-3 py-1.5 bg-cyan-500 hover:bg-cyan-400 text-black font-extrabold text-xs rounded-lg shadow transition shrink-0 ml-2 flex items-center space-x-1"
+                          >
+                            <Anchor className="w-3.5 h-3.5" />
+                            <span>Confirm Vessel Arrival at Quay</span>
+                          </button>
+                        )}
                       </div>
                     </div>
-                  ))}
-                </div>
 
-                {/* Quayside Receipt Notes */}
-                {rbl.quaysideInspectionNotes && (
-                  <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300 space-y-0.5">
-                    <p className="font-bold">Quayside Tally Notes ({rbl.receivedBySupplyBaseMatco}):</p>
-                    <p>{rbl.quaysideInspectionNotes}</p>
+                    {/* Backloaded Line Items & Disposition Decision Controls */}
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center">
+                        <p className="text-[11px] font-extrabold text-gray-300 uppercase tracking-wider">
+                          Manifest Tubular Items & Next Action Disposition:
+                        </p>
+                        {rbl.vesselArrivalTimestamp && (
+                          <span className="text-[10px] text-gray-400 font-mono">
+                            Arrived Quay: {new Date(rbl.vesselArrivalTimestamp).toLocaleString()}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="divide-y divide-white/5 border border-white/10 rounded-xl overflow-hidden bg-black/20">
+                        {rbl.items.map((item, idx) => {
+                          const actionDone = item.actionType && item.actionType !== 'PENDING_DECISION';
+
+                          return (
+                            <div key={idx} className="p-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3 hover:bg-white/[0.02]">
+                              
+                              {/* Left: Item Spec & Tag */}
+                              <div className="space-y-1 max-w-md">
+                                <div className="flex items-center space-x-2">
+                                  <span className="font-mono font-extrabold text-amber-400 text-xs">{item.tagNumber}</span>
+                                  {item.serialNumber && (
+                                    <span className="font-mono text-[10px] text-gray-400">({item.serialNumber})</span>
+                                  )}
+                                  <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold ${
+                                    item.conditionOnRig === 'Damaged / Reject' ? 'bg-rose-500/20 text-rose-300' : 'bg-emerald-500/20 text-emerald-300'
+                                  }`}>
+                                    {item.conditionOnRig}
+                                  </span>
+                                </div>
+                                <p className="text-xs font-semibold text-white">{item.name}</p>
+                                <p className="text-[11px] text-gray-400">
+                                  Reason for Backload: <strong className="text-amber-300">{item.reasonForBackload}</strong> • Joint Count: <strong className="text-white font-mono">{item.quantityJoints} Jts</strong>
+                                </p>
+                              </div>
+
+                              {/* Right: Next Course of Action Decision Buttons */}
+                              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0">
+                                {actionDone ? (
+                                  <div className="p-2 rounded-lg bg-white/5 border border-white/10 text-right">
+                                    <span className={`text-[10px] uppercase font-extrabold px-2 py-0.5 rounded ${
+                                      item.actionType === 'SEND_TO_INSPECTION' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
+                                      item.actionType === 'SEND_TO_DISPOSAL' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' :
+                                      'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                    }`}>
+                                      Action: {item.actionType?.replace(/_/g, ' ')}
+                                    </span>
+                                    {item.processedByMatco && (
+                                      <p className="text-[9px] text-gray-400 font-mono mt-1">
+                                        Processed by {item.processedByMatco} @ {item.processedTimestamp ? new Date(item.processedTimestamp).toLocaleTimeString() : ''}
+                                      </p>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    {/* Action 1: Send to Inspection */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        processBackloadActionAtBase(
+                                          rbl.id,
+                                          item.tagNumber,
+                                          'SEND_TO_INSPECTION',
+                                          'Machine Shop & Testing Facility',
+                                          'Vendor Inspection Bay 2',
+                                          'Sent to vendor machine shop for NDT inspection and thread recutting.'
+                                        );
+                                      }}
+                                      className="px-2.5 py-1.5 bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/40 rounded-lg text-xs font-bold transition flex items-center space-x-1"
+                                      title="Send for NDT inspection prior to yard storage"
+                                    >
+                                      <Wrench className="w-3 h-3" />
+                                      <span>1. Send to Inspection</span>
+                                    </button>
+
+                                    {/* Action 2: Send for Disposal */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        processBackloadActionAtBase(
+                                          rbl.id,
+                                          item.tagNumber,
+                                          'SEND_TO_DISPOSAL',
+                                          'Scrap Yard / Disposal',
+                                          'Disposal Bay D',
+                                          'Classified as rejected beyond economic repair. Disposed/scrapped.'
+                                        );
+                                      }}
+                                      className="px-2.5 py-1.5 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white border border-rose-500/40 rounded-lg text-xs font-bold transition flex items-center space-x-1"
+                                      title="Send straight for scrapping and disposal"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                      <span>2. Send for Disposal</span>
+                                    </button>
+
+                                    {/* Action 3: Direct Field Ready Storage */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        processBackloadActionAtBase(
+                                          rbl.id,
+                                          item.tagNumber,
+                                          'STORE_SERVICEABLE',
+                                          'Main Supply Base Yard',
+                                          'Base Yard Recert Bay 1',
+                                          'Inspected good at quayside. Restocked in Base Yard.'
+                                        );
+                                      }}
+                                      className="px-2.5 py-1.5 bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-black border border-emerald-500/40 rounded-lg text-xs font-bold transition flex items-center space-x-1"
+                                      title="Store directly as serviceable stock"
+                                    >
+                                      <CheckCircle2 className="w-3 h-3" />
+                                      <span>3. Direct Serviceable Rack</span>
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Quayside Inspection Notes Logging */}
+                    {rbl.quaysideInspectionNotes && (
+                      <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300 flex items-start space-x-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-bold">Quayside Tally Notes ({rbl.receivedBySupplyBaseMatco}):</p>
+                          <p className="text-gray-300">{rbl.quaysideInspectionNotes}</p>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
-
-                {rbl.status !== 'Reconciled & Racked' && (
-                  <button
-                    onClick={() => receiveRigBackloadAtSupplyBase(rbl.id, 'Quayside tally completed. All joint counts verified and stored in Yard Zone C.')}
-                    className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-xs uppercase tracking-wider rounded-xl shadow transition flex items-center justify-center space-x-2"
-                  >
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>Confirm Quayside Receipt & Reconcile into Base Yard</span>
-                  </button>
-                )}
-              </div>
-            ))}
+                );
+              })}
           </div>
         </div>
       )}
