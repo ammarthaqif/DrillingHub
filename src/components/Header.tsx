@@ -14,6 +14,8 @@ import {
   HardHat,
   Sparkles,
   FileSpreadsheet,
+  FolderKanban,
+  Database,
   LogOut,
   Lock
 } from 'lucide-react';
@@ -26,6 +28,8 @@ interface HeaderProps {
   onOpenAiAuditModal?: () => void;
   onOpenAuditReports?: () => void;
   onOpenAdminPanel?: () => void;
+  onOpenCampaignModal?: () => void;
+  onOpenBackupModal?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -36,6 +40,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAiAuditModal,
   onOpenAuditReports,
   onOpenAdminPanel,
+  onOpenCampaignModal,
+  onOpenBackupModal,
 }) => {
   const { 
     currentUser, 
@@ -47,13 +53,16 @@ export const Header: React.FC<HeaderProps> = ({
     setIsOffline, 
     offlineQueue, 
     processSyncQueue,
-    hasModuleAccess
+    hasModuleAccess,
+    campaigns,
+    activeCampaignId
   } = useDrilling();
 
   const userRole = currentUser?.role || 'Drilling Engineer';
   const canAccessAdmin = hasModuleAccess(userRole, 'admin');
   const canAccessAudit = hasModuleAccess(userRole, 'audit');
 
+  const activeCampaign = campaigns.find(c => c.id === activeCampaignId);
   const pendingApprovalsCount = allUsers.filter(u => u.status === 'Pending Email Verification' || u.status === 'Pending Admin Approval').length;
 
   return (
@@ -69,9 +78,16 @@ export const Header: React.FC<HeaderProps> = ({
             <div>
               <div className="flex items-center space-x-2">
                 <span className="font-extrabold text-lg tracking-tight text-white">DRILL<span className="text-amber-500">CORE</span><span className="font-light text-gray-500 text-sm ml-0.5">OS</span></span>
-                <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-500 border border-amber-500/30">
-                  Alpha-Exp-2024
-                </span>
+                {onOpenCampaignModal && (
+                  <button
+                    onClick={onOpenCampaignModal}
+                    className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 transition flex items-center gap-1"
+                    title="Click to Manage Campaigns & Projects"
+                  >
+                    <FolderKanban className="w-3 h-3 text-amber-400" />
+                    <span>{activeCampaign ? activeCampaign.code : 'All Campaigns'}</span>
+                  </button>
+                )}
               </div>
               <p className="text-xs text-gray-400 hidden sm:block">Tubular, Accessory & Tool Campaign Inventory Engine</p>
             </div>
@@ -80,6 +96,30 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Quick Actions & Role Selector */}
           <div className="flex items-center space-x-2 sm:space-x-3">
             
+            {/* Campaign Manager Trigger */}
+            {onOpenCampaignModal && (
+              <button
+                onClick={onOpenCampaignModal}
+                className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 border border-amber-500/30 transition shadow-sm"
+                title="Manage Drilling Campaigns, Rigs & Supply Bases"
+              >
+                <FolderKanban className="w-4 h-4 text-amber-400" />
+                <span className="hidden md:inline">Campaign Hub</span>
+              </button>
+            )}
+
+            {/* Backup & Vault Recovery Trigger */}
+            {onOpenBackupModal && (
+              <button
+                onClick={onOpenBackupModal}
+                className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 border border-blue-500/30 transition shadow-sm"
+                title="Perform Daily/Weekly Backup & Database Restore"
+              >
+                <Database className="w-4 h-4 text-blue-400" />
+                <span className="hidden md:inline">Vault & Backup</span>
+              </button>
+            )}
+
             {/* AI Campaign Auditor */}
             <button
               onClick={onOpenAiAuditModal}

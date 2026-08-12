@@ -116,6 +116,87 @@ export interface MaintenanceLog {
   costEstimateUsd?: number;
 }
 
+export interface ItemPhotoRecord {
+  id: string;
+  capturedAt: string; // ISO timestamp
+  capturedBy: string; // Matco or Inspector Name
+  role?: string;
+  photoUrl: string; // base64 Data URL or image URL
+  caption: string;
+  photoType: 'Thread & Pin Inspection' | 'Tally Tag & Serial Stencil' | 'Storage Yard Rack' | 'Damage / Wear Defect' | 'Vessel Loading / Backload';
+  gpsLocation?: string;
+}
+
+export interface WellDefinition {
+  id: string;
+  name: string; // e.g. "Well Alpha-01", "Well Baram-104"
+  code: string; // e.g. "W-ALP-01"
+  type: 'Exploration' | 'Development' | 'Appraisal' | 'Workover / Abandonment';
+  status: 'Planning' | 'Active Drilling' | 'Completed' | 'Suspended';
+  targetDepthFt?: number;
+  afeCode?: string;
+  assignedRigId?: string;
+  assignedRigName?: string;
+}
+
+export interface PersonnelFocal {
+  id: string;
+  name: string;
+  email: string;
+  roleTitle: 'Drilling Engineer' | 'Materials Coordinator (Matco)' | 'Materials Management Focal' | 'Logistics Focal' | 'QA/QC Lead';
+  assignedLocation?: string;
+}
+
+export interface DrillingCampaign {
+  id: string; // e.g. "CMP-2026-NORTH"
+  code: string; // e.g. "CAM-PETRONAS-01"
+  name: string; // e.g. "Offshore North Malay Basin Campaign 2026"
+  operator: string; // e.g. "Petronas Carigali / Shell Malaysia"
+  clientCompany?: string;
+  status: 'Planning' | 'Active Execution' | 'Completed' | 'On Hold';
+  startDate: string;
+  endDate?: string;
+  budgetUsd?: number;
+  
+  // Multi-structure relationships
+  wells: WellDefinition[];
+  rigs: { id: string; name: string; location: LocationType }[];
+  supplyBases: { id: string; name: string; location: LocationType }[];
+  focals: PersonnelFocal[];
+  
+  description?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DatabaseBackupRecord {
+  id: string; // e.g. BKP-20260812-1402
+  timestamp: string;
+  createdByName: string;
+  createdByRole: string;
+  backupType: 'Daily Scheduled Auto-Backup' | 'Weekly Scheduled Backup' | 'Monthly Snapshot' | 'Manual On-Demand Backup';
+  version: string;
+  summary: {
+    itemsCount: number;
+    transfersCount: number;
+    usersCount: number;
+    backloadsCount: number;
+    campaignsCount: number;
+    auditLogsCount: number;
+  };
+  dataJson?: string; // Full database payload stringified
+  notes?: string;
+}
+
+export interface ItemBookingLock {
+  isBooked: boolean;
+  bookedForManifestId?: string;
+  manifestType?: 'Material Transfer Ticket' | 'Rig Backload Manifest' | 'Surplus Requisition';
+  bookedForRigOrBase?: string;
+  bookedBy?: string;
+  bookedAt?: string;
+}
+
 export interface OwnershipTransferRecord {
   id: string;
   transferDate: string;
@@ -152,6 +233,18 @@ export interface TubularItem {
   currentLocation: LocationType;
   rackLocation?: string; // e.g. "Rack B-04" or "Rig Catwalk"
   
+  // Campaign & Well Linkage
+  campaignId?: string;
+  campaignName?: string;
+  wellId?: string;
+  wellName?: string;
+
+  // Real-time Booking / Anti-Double Booking Guard
+  bookingLock?: ItemBookingLock;
+
+  // Photos & Inspection Visual Proof (Real-time Upload)
+  photos?: ItemPhotoRecord[];
+
   // Purchase, ERP & Tracking Identifiers
   cocNumber?: string; // Certificate of Conformance
   poNumber?: string; // Purchase Order #

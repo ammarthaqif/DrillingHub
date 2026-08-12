@@ -21,6 +21,8 @@ import { RigSiteHub } from './components/RigSiteHub';
 import { CheckAndBalanceHub } from './components/CheckAndBalanceHub';
 import { AuthGate } from './components/AuthGate';
 import { ConcurrentLoginPromptModal } from './components/ConcurrentLoginPromptModal';
+import { CampaignManagerModal } from './components/CampaignManagerModal';
+import { BackupRestoreModal } from './components/BackupRestoreModal';
 import { TubularItem } from './types/drilling';
 import { 
   LayoutDashboard, 
@@ -107,6 +109,8 @@ const MainAppContent: React.FC = () => {
   const [isAlertsModalOpen, setIsAlertsModalOpen] = useState(false);
   const [isScannerModalOpen, setIsScannerModalOpen] = useState(false);
   const [isAiAuditModalOpen, setIsAiAuditModalOpen] = useState(false);
+  const [isCampaignModalOpen, setIsCampaignModalOpen] = useState(false);
+  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
 
   if (!isAuthenticated) {
     return <AuthGate />;
@@ -135,6 +139,8 @@ const MainAppContent: React.FC = () => {
         onOpenAiAuditModal={() => setIsAiAuditModalOpen(true)}
         onOpenAuditReports={() => setActiveNav('audit')}
         onOpenAdminPanel={() => setActiveNav('admin')}
+        onOpenCampaignModal={() => setIsCampaignModalOpen(true)}
+        onOpenBackupModal={() => setIsBackupModalOpen(true)}
       />
 
       {/* Role Banner & Department Badge */}
@@ -318,6 +324,16 @@ const MainAppContent: React.FC = () => {
       <AiAuditModal
         isOpen={isAiAuditModalOpen}
         onClose={() => setIsAiAuditModalOpen(false)}
+      />
+
+      <CampaignManagerModal
+        isOpen={isCampaignModalOpen}
+        onClose={() => setIsCampaignModalOpen(false)}
+      />
+
+      <BackupRestoreModal
+        isOpen={isBackupModalOpen}
+        onClose={() => setIsBackupModalOpen(false)}
       />
 
       <ConcurrentLoginPromptModal />

@@ -28,7 +28,14 @@ import {
   X,
   Sparkles,
   ShieldAlert,
-  Sliders
+  Sliders,
+  ChevronDown,
+  ChevronUp,
+  Boxes,
+  Eye,
+  Printer,
+  ArrowUpRight,
+  BarChart2
 } from 'lucide-react';
 
 export const SupplyBaseHub: React.FC = () => {
@@ -51,11 +58,18 @@ export const SupplyBaseHub: React.FC = () => {
     availableCarrierTypes
   } = useDrilling();
 
-  const [activeTab, setActiveTab] = useState<'yardInventory' | 'vendorYard' | 'vesselStaging' | 'backloadReceipt'>('yardInventory');
+  const [activeTab, setActiveTab] = useState<'yardInventory' | 'vendorYard' | 'vesselStaging' | 'backloadReceipt' | 'manifestOverview'>('yardInventory');
 
   // Search & Filters for Yard Inventory
   const [yardQuery, setYardQuery] = useState('');
   const [selectedRackZone, setSelectedRackZone] = useState<string>('ALL');
+
+  // Manifest Overview Panel State
+  const [manifestOverviewQuery, setManifestOverviewQuery] = useState('');
+  const [manifestStatusFilter, setManifestStatusFilter] = useState<'ALL' | 'IN_TRANSIT' | 'ARRIVED' | 'COMPLETED'>('ALL');
+  const [manifestRigFilter, setManifestRigFilter] = useState<string>('ALL');
+  const [collapsedManifests, setCollapsedManifests] = useState<Record<string, boolean>>({});
+  const [selectedBatchForPrint, setSelectedBatchForPrint] = useState<any | null>(null);
 
   // Backload Processing State
   const [backloadSearchQuery, setBackloadSearchQuery] = useState('');
@@ -224,6 +238,16 @@ export const SupplyBaseHub: React.FC = () => {
           >
             <PackageCheck className="w-3.5 h-3.5" />
             <span>Rig Backload Receipt ({rigBackloads.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('manifestOverview')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 ${
+              activeTab === 'manifestOverview' ? 'bg-amber-500 text-black shadow' : 'text-gray-400 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Manifest Overview ({rigBackloads.length})</span>
           </button>
         </div>
       </div>
@@ -937,6 +961,631 @@ export const SupplyBaseHub: React.FC = () => {
                   </div>
                 );
               })}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 5: MANIFEST OVERVIEW PANEL (BIRD'S-EYE VIEW BY BACKLOAD TRACKING NUMBER) */}
+      {activeTab === 'manifestOverview' && (
+        <div className="bg-[#111114] border border-white/10 rounded-2xl p-6 shadow-lg space-y-6">
+          
+          {/* Header & Bird's-Eye Banner */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-white/10 pb-5">
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="p-2 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">
+                  <Layers className="w-5 h-5" />
+                </span>
+                <h3 className="text-base font-extrabold text-white">
+                  Incoming Equipment Arrival Batches & Manifest Overview
+                </h3>
+                <span className="px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-[10px] font-bold uppercase tracking-wider">
+                  Backload Batch Tracker
+                </span>
+              </div>
+              <p className="text-xs text-gray-400 mt-1">
+                Bird's-eye view of all incoming tubulars grouped by their <strong className="text-amber-400">original backload tracking number</strong>, vessel voyage, rig origin, and quayside routing status.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setActiveTab('backloadReceipt')}
+                className="px-3.5 py-2 bg-white/5 hover:bg-white/10 text-gray-200 border border-white/10 text-xs font-bold rounded-xl transition flex items-center space-x-2"
+              >
+                <PackageCheck className="w-4 h-4 text-amber-400" />
+                <span>Quayside Action Center</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const allCollapsed = Object.keys(collapsedManifests).length === rigBackloads.length;
+                  if (allCollapsed) {
+                    setCollapsedManifests({});
+                  } else {
+                    const next: Record<string, boolean> = {};
+                    rigBackloads.forEach(r => { next[r.id] = true; });
+                    setCollapsedManifests(next);
+                  }
+                }}
+                className="px-3.5 py-2 bg-white/5 hover:bg-white/10 text-gray-200 border border-white/10 text-xs font-bold rounded-xl transition flex items-center space-x-1.5"
+              >
+                <Sliders className="w-4 h-4 text-cyan-400" />
+                <span>{Object.keys(collapsedManifests).length === rigBackloads.length ? 'Expand All Batches' : 'Collapse All Batches'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Bird's-Eye KPI Summary Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+            <div className="p-3.5 rounded-xl bg-black/40 border border-white/10 space-y-1">
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Total Arrival Batches</span>
+              <div className="flex items-baseline space-x-1.5">
+                <span className="text-lg font-extrabold text-amber-400 font-mono">{rigBackloads.length}</span>
+                <span className="text-[10px] text-gray-400">Manifests</span>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-black/40 border border-white/10 space-y-1">
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Total Incoming Joints</span>
+              <div className="flex items-baseline space-x-1.5">
+                <span className="text-lg font-extrabold text-cyan-300 font-mono">
+                  {rigBackloads.reduce((sum, r) => sum + r.items.reduce((s, i) => s + (i.quantityJoints || 1), 0), 0)}
+                </span>
+                <span className="text-[10px] text-gray-400">Joints</span>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-black/40 border border-white/10 space-y-1">
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Vessels In Transit</span>
+              <div className="flex items-baseline space-x-1.5">
+                <span className="text-lg font-extrabold text-amber-300 font-mono">
+                  {rigBackloads.filter(r => !r.status.includes('Arrived') && !r.status.includes('Action Completed') && r.status !== 'Reconciled & Racked').length}
+                </span>
+                <span className="text-[10px] text-amber-400">Voyages</span>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-black/40 border border-white/10 space-y-1">
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Berthed at Quay</span>
+              <div className="flex items-baseline space-x-1.5">
+                <span className="text-lg font-extrabold text-cyan-400 font-mono">
+                  {rigBackloads.filter(r => r.status.includes('Arrived') || r.status.includes('Received')).length}
+                </span>
+                <span className="text-[10px] text-cyan-300">Berthed</span>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-black/40 border border-white/10 space-y-1">
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Inspection Queue</span>
+              <div className="flex items-baseline space-x-1.5">
+                <span className="text-lg font-extrabold text-amber-400 font-mono">
+                  {rigBackloads.reduce((sum, r) => sum + r.items.filter(i => (!i.routingQueue || i.routingQueue === 'INSPECTION_REQUIRED')).length, 0)}
+                </span>
+                <span className="text-[10px] text-amber-300">Items</span>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-black/40 border border-white/10 space-y-1">
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Disposal Queue</span>
+              <div className="flex items-baseline space-x-1.5">
+                <span className="text-lg font-extrabold text-rose-400 font-mono">
+                  {rigBackloads.reduce((sum, r) => sum + r.items.filter(i => i.routingQueue === 'DIRECT_DISPOSAL').length, 0)}
+                </span>
+                <span className="text-[10px] text-rose-300">Items</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Search, Filter & View Controls */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-black/40 p-3.5 rounded-xl border border-white/10 text-xs">
+            
+            <div className="flex flex-wrap items-center gap-2 flex-1">
+              <div className="relative flex-1 min-w-[200px]">
+                <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={manifestOverviewQuery}
+                  onChange={(e) => setManifestOverviewQuery(e.target.value)}
+                  placeholder="Filter by Tracking #, Vessel, Rig, Tag or Spec..."
+                  className="w-full bg-black/60 border border-white/10 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <select
+                  value={manifestStatusFilter}
+                  onChange={(e) => setManifestStatusFilter(e.target.value as any)}
+                  className="bg-black/60 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                >
+                  <option value="ALL">All Manifest Statuses</option>
+                  <option value="IN_TRANSIT">In Transit / Vessel En Route</option>
+                  <option value="ARRIVED">Arrived / Berthed at Quay</option>
+                  <option value="COMPLETED">Action Completed / Racked</option>
+                </select>
+
+                <select
+                  value={manifestRigFilter}
+                  onChange={(e) => setManifestRigFilter(e.target.value)}
+                  className="bg-black/60 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                >
+                  <option value="ALL">All Origin Rigs</option>
+                  {Array.from(new Set(rigBackloads.map(r => r.rigLocation))).map(rig => (
+                    <option key={rig} value={rig}>{rig}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="text-[11px] text-gray-400 font-mono shrink-0">
+              Showing <strong className="text-amber-400">{
+                rigBackloads.filter(m => {
+                  if (manifestStatusFilter === 'IN_TRANSIT' && (m.status.includes('Arrived') || m.status.includes('Action Completed') || m.status === 'Reconciled & Racked')) return false;
+                  if (manifestStatusFilter === 'ARRIVED' && (!m.status.includes('Arrived') && !m.status.includes('Received'))) return false;
+                  if (manifestStatusFilter === 'COMPLETED' && (!m.status.includes('Action Completed') && m.status !== 'Reconciled & Racked')) return false;
+                  if (manifestRigFilter !== 'ALL' && m.rigLocation !== manifestRigFilter) return false;
+                  if (manifestOverviewQuery.trim()) {
+                    const q = manifestOverviewQuery.toLowerCase();
+                    const matchManifest = m.manifestNumber.toLowerCase().includes(q);
+                    const matchVessel = m.vesselName.toLowerCase().includes(q);
+                    const matchRig = m.rigLocation.toLowerCase().includes(q);
+                    const matchItems = m.items.some(i => i.tagNumber.toLowerCase().includes(q) || i.name.toLowerCase().includes(q) || (i.serialNumber && i.serialNumber.toLowerCase().includes(q)));
+                    if (!matchManifest && !matchVessel && !matchRig && !matchItems) return false;
+                  }
+                  return true;
+                }).length
+              }</strong> of {rigBackloads.length} Manifest Batches
+            </div>
+          </div>
+
+          {/* Grouped Arrival Batches Container Cards */}
+          <div className="space-y-5">
+            {rigBackloads
+              .filter(m => {
+                if (manifestStatusFilter === 'IN_TRANSIT' && (m.status.includes('Arrived') || m.status.includes('Action Completed') || m.status === 'Reconciled & Racked')) return false;
+                if (manifestStatusFilter === 'ARRIVED' && (!m.status.includes('Arrived') && !m.status.includes('Received'))) return false;
+                if (manifestStatusFilter === 'COMPLETED' && (!m.status.includes('Action Completed') && m.status !== 'Reconciled & Racked')) return false;
+                if (manifestRigFilter !== 'ALL' && m.rigLocation !== manifestRigFilter) return false;
+                if (manifestOverviewQuery.trim()) {
+                  const q = manifestOverviewQuery.toLowerCase();
+                  const matchManifest = m.manifestNumber.toLowerCase().includes(q);
+                  const matchVessel = m.vesselName.toLowerCase().includes(q);
+                  const matchRig = m.rigLocation.toLowerCase().includes(q);
+                  const matchItems = m.items.some(i => i.tagNumber.toLowerCase().includes(q) || i.name.toLowerCase().includes(q) || (i.serialNumber && i.serialNumber.toLowerCase().includes(q)));
+                  if (!matchManifest && !matchVessel && !matchRig && !matchItems) return false;
+                }
+                return true;
+              })
+              .map((rbl) => {
+                const isCollapsed = !!collapsedManifests[rbl.id];
+                const isArrived = rbl.status.includes('Arrived');
+                const isActionCompleted = rbl.status.startsWith('Action Completed') || rbl.status === 'Reconciled & Racked';
+
+                const totalJointsInBatch = rbl.items.reduce((s, i) => s + (i.quantityJoints || 1), 0);
+                const goodCount = rbl.items.filter(i => i.conditionOnRig === 'Used - Good' || i.conditionOnRig === 'New Purchased').length;
+                const wornCount = rbl.items.filter(i => i.conditionOnRig === 'Used - Minor Wear' || i.conditionOnRig === 'Backloaded - Pending Recert').length;
+                const damagedCount = rbl.items.filter(i => i.conditionOnRig === 'Damaged / Reject').length;
+                const inspectionCount = rbl.items.filter(i => !i.routingQueue || i.routingQueue === 'INSPECTION_REQUIRED').length;
+                const disposalCount = rbl.items.filter(i => i.routingQueue === 'DIRECT_DISPOSAL').length;
+                const poApprovedCount = rbl.items.filter(i => i.poApproved).length;
+
+                return (
+                  <div key={rbl.id} className="bg-black/50 border border-white/10 rounded-2xl shadow-xl overflow-hidden space-y-0 transition">
+                    
+                    {/* Manifest Batch Card Header */}
+                    <div className="p-4 sm:p-5 bg-white/[0.02] border-b border-white/10 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                      
+                      <div className="space-y-1.5 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono font-extrabold text-amber-400 text-sm px-2.5 py-1 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center space-x-1.5">
+                            <Layers className="w-4 h-4 text-amber-400" />
+                            <span>Tracking #{rbl.manifestNumber}</span>
+                          </span>
+
+                          <span className="text-xs text-cyan-300 font-bold bg-cyan-500/10 border border-cyan-500/30 px-2.5 py-1 rounded-lg flex items-center space-x-1">
+                            <Ship className="w-3.5 h-3.5 text-cyan-400" />
+                            <span>{rbl.vesselName}</span>
+                          </span>
+
+                          <span className="text-xs text-gray-300 font-semibold bg-white/5 border border-white/10 px-2.5 py-1 rounded-lg">
+                            <Building2 className="w-3.5 h-3.5 inline mr-1 text-amber-400" />
+                            Origin: {rbl.rigLocation}
+                          </span>
+
+                          <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-extrabold uppercase tracking-wider ${
+                            isActionCompleted ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
+                            isArrived ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' :
+                            'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                          }`}>
+                            {rbl.status}
+                          </span>
+
+                          <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                            rbl.kpiStatus === 'On Track' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                            rbl.kpiStatus === 'Near Breach' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse' :
+                            'bg-gray-500/20 text-gray-300 border border-gray-500/30'
+                          }`}>
+                            SLA: {rbl.kpiStatus || 'In Transit'}
+                          </span>
+                        </div>
+
+                        <div className="text-[11px] text-gray-400 flex flex-wrap items-center gap-3 pt-0.5">
+                          <span>Prepared By: <strong className="text-white">{rbl.preparedBy}</strong></span>
+                          <span>• Dispatch Date: <strong className="text-gray-300">{rbl.createdDate}</strong></span>
+                          {rbl.vesselEta && (
+                            <span>• Vessel ETA: <strong className="text-cyan-300">{rbl.vesselEta.replace('T', ' ')}</strong></span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Batch Controls Toolbar */}
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        {!isArrived && (
+                          <button
+                            type="button"
+                            onClick={() => confirmVesselArrivalAtBase(rbl.id, 'Quayside berthed. Material inspection in progress.')}
+                            className="px-3 py-1.5 bg-cyan-500 hover:bg-cyan-400 text-black text-xs font-extrabold rounded-xl shadow transition flex items-center space-x-1"
+                          >
+                            <Anchor className="w-3.5 h-3.5" />
+                            <span>Confirm Arrival</span>
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => setSelectedBatchForPrint(rbl)}
+                          className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-gray-200 border border-white/10 text-xs font-bold rounded-xl transition flex items-center space-x-1.5"
+                          title="Generate printable batch manifest summary sheet"
+                        >
+                          <Printer className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Print Batch Tally</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setCollapsedManifests(prev => ({ ...prev, [rbl.id]: !prev[rbl.id] }))}
+                          className="p-1.5 bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10 rounded-xl transition"
+                        >
+                          {isCollapsed ? <ChevronDown className="w-4 h-4 text-amber-400" /> : <ChevronUp className="w-4 h-4 text-amber-400" />}
+                        </button>
+                      </div>
+
+                    </div>
+
+                    {/* Batch Summary Strip */}
+                    <div className="px-5 py-2.5 bg-black/40 border-b border-white/5 flex flex-wrap items-center justify-between text-xs gap-3">
+                      <div className="flex flex-wrap items-center gap-4 text-[11px]">
+                        <span className="text-gray-400">
+                          Tubular Line Items: <strong className="text-white font-mono">{rbl.items.length}</strong>
+                        </span>
+                        <span className="text-gray-400">
+                          Total Joint Batch: <strong className="text-amber-300 font-mono">{totalJointsInBatch} Jts</strong>
+                        </span>
+                        <span className="text-gray-400">
+                          Condition: <strong className="text-emerald-400">{goodCount} Good</strong> / <strong className="text-amber-300">{wornCount} Worn</strong> / <strong className="text-rose-400">{damagedCount} Damaged</strong>
+                        </span>
+                        <span className="text-gray-400">
+                          Queue: <strong className="text-amber-400">{inspectionCount} Inspection</strong> / <strong className="text-rose-400">{disposalCount} Disposal</strong>
+                        </span>
+                        <span className="text-gray-400">
+                          Service PO Status: <strong className={poApprovedCount === rbl.items.length ? 'text-emerald-400' : 'text-amber-400'}>
+                            {poApprovedCount} / {rbl.items.length} Verified
+                          </strong>
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setCollapsedManifests(prev => ({ ...prev, [rbl.id]: !prev[rbl.id] }))}
+                        className="text-[11px] text-cyan-400 hover:underline font-semibold flex items-center space-x-1"
+                      >
+                        <span>{isCollapsed ? 'Show Equipment Table' : 'Hide Equipment Table'}</span>
+                        {isCollapsed ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
+                      </button>
+                    </div>
+
+                    {/* Equipment Arrival Table (Collapsible) */}
+                    {!isCollapsed && (
+                      <div className="p-4 space-y-3 bg-black/20">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs text-gray-300">
+                            <thead className="bg-black/60 text-gray-400 font-semibold uppercase text-[10px] border-b border-white/10">
+                              <tr>
+                                <th className="p-3">Tag / Serial #</th>
+                                <th className="p-3">Tubular Description</th>
+                                <th className="p-3">Hole Section</th>
+                                <th className="p-3">Joints / Length</th>
+                                <th className="p-3">Rig Return Condition</th>
+                                <th className="p-3">Auto-Routing Queue</th>
+                                <th className="p-3">Service PO</th>
+                                <th className="p-3">Disposition Action</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-white/5">
+                              {rbl.items.map((item, idx) => {
+                                const actionDone = item.actionType && item.actionType !== 'PENDING_DECISION';
+                                const queue = item.routingQueue || ((item.ageYears || 1.5) >= ageThresholdYears || item.conditionOnRig === 'Damaged / Reject' ? 'DIRECT_DISPOSAL' : 'INSPECTION_REQUIRED');
+
+                                return (
+                                  <tr key={idx} className="hover:bg-white/[0.02]">
+                                    <td className="p-3 font-mono font-bold text-amber-400">
+                                      {item.tagNumber}
+                                      {item.serialNumber && (
+                                        <div className="text-[10px] text-gray-500 font-mono">{item.serialNumber}</div>
+                                      )}
+                                    </td>
+
+                                    <td className="p-3">
+                                      <div className="font-semibold text-white">{item.name}</div>
+                                      <div className="text-[10px] text-gray-400">
+                                        Reason: <span className="text-amber-300">{item.reasonForBackload}</span>
+                                      </div>
+                                    </td>
+
+                                    <td className="p-3">
+                                      <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-[10px] font-mono text-cyan-300">
+                                        {item.holeSection || '12-1/4"'}
+                                      </span>
+                                    </td>
+
+                                    <td className="p-3 font-mono">
+                                      <div className="font-bold text-white">{item.quantityJoints} Jts</div>
+                                      <div className="text-[10px] text-gray-400">~{item.quantityJoints * 40} ft</div>
+                                    </td>
+
+                                    <td className="p-3">
+                                      <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${
+                                        item.conditionOnRig === 'Damaged / Reject' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' :
+                                        (item.conditionOnRig === 'Used - Minor Wear' || item.conditionOnRig === 'Backloaded - Pending Recert') ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
+                                        'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                      }`}>
+                                        {item.conditionOnRig}
+                                      </span>
+                                    </td>
+
+                                    <td className="p-3">
+                                      <span className={`text-[10px] px-2 py-0.5 rounded font-bold flex items-center space-x-1 border w-max ${
+                                        queue === 'DIRECT_DISPOSAL' ? 'bg-rose-500/20 text-rose-300 border-rose-500/30' : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                                      }`}>
+                                        {queue === 'DIRECT_DISPOSAL' ? <Trash2 className="w-3 h-3 text-rose-400 mr-1 inline" /> : <Wrench className="w-3 h-3 text-amber-400 mr-1 inline" />}
+                                        <span>{queue === 'DIRECT_DISPOSAL' ? 'Direct Disposal' : 'Inspection Req'}</span>
+                                      </span>
+                                      <div className="text-[9px] text-gray-500 font-mono mt-0.5">
+                                        Age: {(item.ageYears || 1.5).toFixed(1)} Yrs
+                                      </div>
+                                    </td>
+
+                                    <td className="p-3">
+                                      {item.poApproved ? (
+                                        <span className="text-[10px] text-emerald-400 font-mono font-bold flex items-center space-x-1">
+                                          <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                                          <span>{item.poNumber}</span>
+                                        </span>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setPoNumberInput(`PO-2026-VEND-${Math.floor(1000 + Math.random() * 9000)}`);
+                                            setPoVendorInput('Global OCTG Inspection & Testing Co.');
+                                            setPoServiceScopeInput('NDT EMI & Thread Recertification');
+                                            setPoCostInput(5200);
+                                            setPoModal({
+                                              isOpen: true,
+                                              manifestId: rbl.id,
+                                              itemTagNumber: item.tagNumber,
+                                              vendorName: 'Global OCTG Inspection & Testing Co.',
+                                              serviceScope: 'NDT EMI & Thread Recertification',
+                                              isBackload: true,
+                                            });
+                                          }}
+                                          className="text-[10px] text-amber-400 hover:text-amber-300 underline font-mono flex items-center space-x-1"
+                                        >
+                                          <AlertTriangle className="w-3 h-3 text-amber-400" />
+                                          <span>Attach PO</span>
+                                        </button>
+                                      )}
+                                    </td>
+
+                                    <td className="p-3">
+                                      {actionDone ? (
+                                        <span className={`text-[10px] uppercase font-extrabold px-2 py-0.5 rounded ${
+                                          item.actionType === 'SENT_FOR_INSPECTION' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
+                                          item.actionType === 'SENT_FOR_DISPOSAL' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' :
+                                          'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                        }`}>
+                                          {item.actionType?.replace(/_/g, ' ')}
+                                        </span>
+                                      ) : (
+                                        <div className="flex items-center space-x-1.5">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              if (!item.poApproved) {
+                                                setPoModal({
+                                                  isOpen: true,
+                                                  manifestId: rbl.id,
+                                                  itemTagNumber: item.tagNumber,
+                                                  vendorName: 'Global OCTG Inspection & Testing Co.',
+                                                  serviceScope: 'NDT EMI & Thread Recertification',
+                                                  isBackload: true,
+                                                });
+                                              } else {
+                                                processBackloadActionAtBase(
+                                                  rbl.id,
+                                                  item.tagNumber,
+                                                  'SENT_FOR_INSPECTION',
+                                                  { inspectionFacility: item.poVendorName || 'Machine Shop', notes: 'Dispatched for NDT.' }
+                                                );
+                                              }
+                                            }}
+                                            className="px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black text-[10px] font-bold transition flex items-center space-x-1"
+                                          >
+                                            <Wrench className="w-3 h-3" />
+                                            <span>Inspect</span>
+                                          </button>
+
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              processBackloadActionAtBase(
+                                                rbl.id,
+                                                item.tagNumber,
+                                                'SENT_FOR_DISPOSAL',
+                                                { disposalYardLocation: 'Scrap Yard', notes: 'Direct to disposal.' }
+                                              );
+                                            }}
+                                            className="px-2 py-1 rounded bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white text-[10px] font-bold transition flex items-center space-x-1"
+                                          >
+                                            <Trash2 className="w-3 h-3" />
+                                            <span>Dispose</span>
+                                          </button>
+                                        </div>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
+
+      {/* PRINTABLE BATCH MANIFEST TALLY & RECEIPT MODAL */}
+      {selectedBatchForPrint && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="bg-[#111114] border border-white/10 rounded-2xl w-full max-w-3xl shadow-2xl overflow-hidden text-xs text-gray-200">
+            
+            {/* Modal Header */}
+            <div className="p-4 border-b border-white/10 flex items-center justify-between bg-white/5">
+              <div className="flex items-center space-x-2">
+                <Printer className="w-5 h-5 text-amber-400" />
+                <h3 className="font-bold text-white text-sm">
+                  Official Equipment Arrival Batch Tally Sheet — #{selectedBatchForPrint.manifestNumber}
+                </h3>
+              </div>
+              <button
+                onClick={() => setSelectedBatchForPrint(null)}
+                className="text-gray-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Printable Content Container */}
+            <div className="p-6 space-y-5 max-h-[80vh] overflow-y-auto">
+              
+              {/* Document Header */}
+              <div className="border border-white/10 p-4 rounded-xl bg-black/40 space-y-2">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h4 className="font-extrabold text-amber-400 text-sm tracking-wider uppercase">
+                      PETRONAS / SHELL OCTG SUPPLY BASE HUB
+                    </h4>
+                    <p className="text-[11px] text-gray-400">
+                      Official Quayside Equipment Backload Manifest & Tally Receipt
+                    </p>
+                  </div>
+                  <div className="text-right font-mono text-[11px] text-cyan-300">
+                    <div>Date: {selectedBatchForPrint.createdDate}</div>
+                    <div>Voyage: {selectedBatchForPrint.vesselName}</div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/10 text-[11px]">
+                  <div><span className="text-gray-400">Backload Manifest #:</span> <strong className="text-white font-mono">{selectedBatchForPrint.manifestNumber}</strong></div>
+                  <div><span className="text-gray-400">Origin Rig:</span> <strong className="text-white">{selectedBatchForPrint.rigLocation}</strong></div>
+                  <div><span className="text-gray-400">Dispatched By:</span> <strong className="text-white">{selectedBatchForPrint.preparedBy}</strong></div>
+                  <div><span className="text-gray-400">Vessel Status:</span> <strong className="text-cyan-300">{selectedBatchForPrint.status}</strong></div>
+                  <div><span className="text-gray-400">KPI Timeliness SLA:</span> <strong className="text-amber-300">{selectedBatchForPrint.kpiStatus || 'In Transit'}</strong></div>
+                  <div><span className="text-gray-400">Total Joint Batch:</span> <strong className="text-amber-400 font-mono">{selectedBatchForPrint.items.reduce((s: number, i: any) => s + (i.quantityJoints || 1), 0)} Jts</strong></div>
+                </div>
+              </div>
+
+              {/* Tally Table */}
+              <div className="space-y-2">
+                <h5 className="font-bold text-white text-xs uppercase tracking-wider">
+                  Itemized Tubular Equipment Tally List:
+                </h5>
+
+                <table className="w-full text-left text-[11px] text-gray-300 border border-white/10 rounded-xl overflow-hidden">
+                  <thead className="bg-black/60 text-gray-400 font-semibold uppercase text-[9px] border-b border-white/10">
+                    <tr>
+                      <th className="p-2.5">Tag / Serial #</th>
+                      <th className="p-2.5">Equipment Name</th>
+                      <th className="p-2.5">Hole Sec</th>
+                      <th className="p-2.5">Joints</th>
+                      <th className="p-2.5">Condition</th>
+                      <th className="p-2.5">Routing Queue</th>
+                      <th className="p-2.5">Service PO</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {selectedBatchForPrint.items.map((item: any, idx: number) => (
+                      <tr key={idx} className="hover:bg-white/[0.02]">
+                        <td className="p-2.5 font-mono text-amber-400 font-bold">{item.tagNumber}</td>
+                        <td className="p-2.5 text-white font-medium">{item.name}</td>
+                        <td className="p-2.5 font-mono text-cyan-300">{item.holeSection || '12-1/4"'}</td>
+                        <td className="p-2.5 font-mono font-bold text-white">{item.quantityJoints} Jts</td>
+                        <td className="p-2.5">{item.conditionOnRig}</td>
+                        <td className="p-2.5 font-mono text-amber-300">{item.routingQueue || 'INSPECTION_REQUIRED'}</td>
+                        <td className="p-2.5 font-mono text-emerald-400">{item.poNumber || 'Pending'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Signatures Block */}
+              <div className="grid grid-cols-2 gap-4 pt-3 border-t border-white/10 text-[11px] text-gray-400">
+                <div className="p-3 border border-white/10 rounded-xl space-y-4">
+                  <p className="font-bold text-white">Offshore Rig Dispatcher Sign-off:</p>
+                  <div className="pt-4 border-b border-gray-600"></div>
+                  <p className="text-[10px]">{selectedBatchForPrint.preparedBy} (Rig Materials Specialist)</p>
+                </div>
+
+                <div className="p-3 border border-white/10 rounded-xl space-y-4">
+                  <p className="font-bold text-white">Supply Base Quayside Receiver Sign-off:</p>
+                  <div className="pt-4 border-b border-gray-600"></div>
+                  <p className="text-[10px]">{currentUser.name} ({currentUser.role})</p>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Modal Actions */}
+            <div className="p-4 border-t border-white/10 bg-white/5 flex items-center justify-between">
+              <span className="text-[10px] text-gray-400">
+                Generated via DrillSpec OCTG Material Tracker Engine
+              </span>
+
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedBatchForPrint(null)}
+                  className="px-4 py-2 rounded-xl text-gray-400 hover:text-white text-xs"
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-5 py-2 rounded-xl bg-amber-500 text-black font-extrabold hover:bg-amber-400 transition flex items-center space-x-1.5 text-xs shadow-lg"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>Print Batch Tally Sheet</span>
+                </button>
+              </div>
+            </div>
+
           </div>
         </div>
       )}

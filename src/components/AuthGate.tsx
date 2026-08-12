@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useDrilling } from '../context/DrillingContext';
+import { safeJsonParse } from '../utils/safeJson';
 import { UserRole, LocationType } from '../types/drilling';
 import { 
   Lock, 
@@ -26,6 +27,7 @@ export const AuthGate: React.FC = () => {
     loginUser, 
     registerUser, 
     verifyEmailWithToken,
+    provisionSystemAdminAccount,
     systemConfig,
     availableRoles,
     availableDepartments,
@@ -36,6 +38,27 @@ export const AuthGate: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'signin' | 'request'>('signin');
   const [selectedUserId, setSelectedUserId] = useState<string>(allUsers[0]?.id || '');
   const [pinCode, setPinCode] = useState<string>('1234');
+
+  const handleQuickAdminLogin = () => {
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    const result = provisionSystemAdminAccount();
+    if (result.user) {
+      setSelectedUserId(result.user.id);
+      const loginRes = loginUser(result.user.id, pinCode || '1234');
+      if (!loginRes.success) {
+        if (loginRes.pendingRequest) {
+          setPendingRequestInfo({
+            requestId: loginRes.requestId!,
+            requestingUserId: result.user.id,
+            activeUser: loginRes.activeUser,
+          });
+        } else {
+          setErrorMsg(loginRes.message);
+        }
+      }
+    }
+  };
   
   // Notice & Errors
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -68,7 +91,7 @@ export const AuthGate: React.FC = () => {
         try {
           const rawReq = localStorage.getItem('drillcore_concurrent_login_request');
           if (rawReq) {
-            const parsed = JSON.parse(rawReq);
+            const parsed = safeJsonParse(rawReq, null);
             if (parsed && parsed.requestId === pendingRequestInfo.requestId) {
               if (parsed.status === 'ACCEPTED') {
                 // Request approved! Override active session and complete login
@@ -329,6 +352,33 @@ export const AuthGate: React.FC = () => {
             {/* TAB 1: Sign-In Form */}
         {activeTab === 'signin' && (
           <div className="p-6 sm:p-8 space-y-6">
+
+            {/* Quick 1-Click System Admin Shortcut Banner */}
+            <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 rounded-xl bg-amber-500 text-black shrink-0">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-extrabold text-amber-400 uppercase tracking-wider">
+                    System Administrator Access
+                  </h4>
+                  <p className="text-[11px] text-gray-300">
+                    Auto-provision or login with full System Admin controls
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleQuickAdminLogin}
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black text-xs font-extrabold rounded-xl transition shadow-md flex items-center justify-center space-x-1.5 shrink-0"
+              >
+                <Shield className="w-3.5 h-3.5" />
+                <span>1-Click Admin Login</span>
+              </button>
+            </div>
+
             <form onSubmit={handleSignIn} className="space-y-5">
               
               <div>

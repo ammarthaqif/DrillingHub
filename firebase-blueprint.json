@@ -87,6 +87,30 @@
         "vismaEndpointUrl": { "type": "string" }
       },
       "required": ["key"]
+    },
+    "campaigns": {
+      "title": "Drilling Campaign & Project",
+      "description": "Drilling campaign encompassing multiple wells, rigs, supply bases, and assigned focals",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "operator": { "type": "string" },
+        "status": { "type": "string" },
+        "startDate": { "type": "string" }
+      },
+      "required": ["id", "code", "name", "status"]
+    },
+    "backups": {
+      "title": "Database Backup Vault",
+      "description": "Scheduled and on-demand local/cloud database snapshot backup point",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "createdByName": { "type": "string" },
+        "backupType": { "type": "string" }
+      },
+      "required": ["id", "timestamp", "backupType"]
     }
   }
 }

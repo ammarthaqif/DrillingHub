@@ -1,4 +1,5 @@
-import { TubularItem, MaterialTransferTicket, UserProfile, MaintenanceStatus } from '../types/drilling';
+import { TubularItem, MaterialTransferTicket, UserProfile, MaintenanceStatus, DrillingCampaign, DatabaseBackupRecord } from '../types/drilling';
+import { safeJsonStringify, safeJsonParse, safeClone } from '../utils/safeJson';
 
 export interface VerificationEmailRecord {
   id: string;
@@ -20,6 +21,95 @@ export type DropdownCategoryKey =
   | 'equipmentConditions' 
   | 'maintenanceStatuses' 
   | 'carrierTypes';
+
+export const INITIAL_CAMPAIGNS: DrillingCampaign[] = [
+  {
+    id: 'CMP-2026-NORTH',
+    code: 'CAM-PETRONAS-01',
+    name: 'Petronas Deepwater North Malay Campaign 2026',
+    operator: 'Petronas Carigali Sdn Bhd',
+    clientCompany: 'Shell / Petronas Joint Venture',
+    status: 'Active Execution',
+    startDate: '2026-01-15',
+    endDate: '2026-11-30',
+    budgetUsd: 45000000,
+    description: 'High pressure high temperature (HPHT) exploration & development drilling campaign across 3 deepwater wells.',
+    wells: [
+      {
+        id: 'WEL-NL-01',
+        name: 'Well Alpha-01 (Exploration)',
+        code: 'WEL-ALP-01',
+        type: 'Exploration',
+        status: 'Active Drilling',
+        targetDepthFt: 14500,
+        afeCode: 'AFE-2026-DP-901',
+        assignedRigId: 'RIG-CHAMPION',
+        assignedRigName: 'Offshore Rig Alpha (Deepwater Champion)'
+      },
+      {
+        id: 'WEL-NL-02',
+        name: 'Well Alpha-02 (Development)',
+        code: 'WEL-ALP-02',
+        type: 'Development',
+        status: 'Planning',
+        targetDepthFt: 12800,
+        afeCode: 'AFE-2026-DP-902',
+        assignedRigId: 'RIG-CHAMPION',
+        assignedRigName: 'Offshore Rig Alpha (Deepwater Champion)'
+      }
+    ],
+    rigs: [
+      { id: 'RIG-CHAMPION', name: 'Offshore Rig Alpha (Deepwater Champion)', location: 'Offshore Rig Alpha' }
+    ],
+    supplyBases: [
+      { id: 'BASE-KSB', name: 'Main Supply Base Yard (Kemaman)', location: 'Main Supply Base Yard' }
+    ],
+    focals: [
+      { id: 'FOC-01', name: 'Farhan Nazmi', email: 'farhan.drilling@petronas.com', roleTitle: 'Drilling Engineer', assignedLocation: 'Main Supply Base Yard' },
+      { id: 'FOC-02', name: 'Ammar Thaqif', email: 'ammarthaqif.ar@gmail.com', roleTitle: 'Materials Management Focal', assignedLocation: 'Main Supply Base Yard' },
+      { id: 'FOC-03', name: 'Hafiz Matco', email: 'hafiz.matco@petronas.com', roleTitle: 'Materials Coordinator (Matco)', assignedLocation: 'Offshore Rig Alpha' }
+    ],
+    createdAt: '2026-01-01',
+    updatedAt: '2026-08-12'
+  },
+  {
+    id: 'CMP-2026-BARAM',
+    code: 'CAM-SHELL-02',
+    name: 'Shell Baram Delta Infill Campaign',
+    operator: 'Shell Malaysia Exploration & Production',
+    clientCompany: 'Sarawak Shell Berhad',
+    status: 'Active Execution',
+    startDate: '2026-03-01',
+    endDate: '2026-12-20',
+    budgetUsd: 28000000,
+    description: 'Shallow water infill production wells with 13Cr premium tubing and CRA liner completions.',
+    wells: [
+      {
+        id: 'WEL-BAR-104',
+        name: 'Well Baram Delta B-104',
+        code: 'WEL-BAR-104',
+        type: 'Development',
+        status: 'Active Drilling',
+        targetDepthFt: 9800,
+        afeCode: 'AFE-2026-BAR-304',
+        assignedRigId: 'RIG-NOBLE5',
+        assignedRigName: 'Rig Noble 5 Jackup'
+      }
+    ],
+    rigs: [
+      { id: 'RIG-NOBLE5', name: 'Rig Noble 5 Jackup', location: 'Offshore Rig Alpha' }
+    ],
+    supplyBases: [
+      { id: 'BASE-LABUAN', name: 'Labuan Integrated Supply Base Yard', location: 'Main Supply Base Yard' }
+    ],
+    focals: [
+      { id: 'FOC-04', name: 'Sarah Lin', email: 'sarah.lin@shell.com', roleTitle: 'Drilling Engineer', assignedLocation: 'Machine Shop & Testing Facility' },
+      { id: 'FOC-05', name: 'Zulkifli Matco', email: 'zulkifli.matco@shell.com', roleTitle: 'Materials Coordinator (Matco)', assignedLocation: 'Main Supply Base Yard' }
+    ],
+    createdAt: '2026-02-15',
+    updatedAt: '2026-08-12'
+  }
+];
 
 export const DEFAULT_ROLES = [
   'System Administrator',
@@ -162,12 +252,17 @@ class EmbeddedRealtimeDatabase {
   }
 
   public notify(type: string, payload?: any) {
-    const msg = { type, payload, timestamp: Date.now() };
-    if (this.channel) {
-      this.channel.postMessage(msg);
+    try {
+      const sanitizedPayload = payload ? safeClone(payload) : payload;
+      const msg = { type, payload: sanitizedPayload, timestamp: Date.now() };
+      if (this.channel) {
+        this.channel.postMessage(msg);
+      }
+      // Also dispatch custom local event for single window
+      window.dispatchEvent(new CustomEvent('drillspec_db_change', { detail: msg }));
+    } catch (e) {
+      console.warn('Broadcast notify warning:', e);
     }
-    // Also dispatch custom local event for single window
-    window.dispatchEvent(new CustomEvent('drillspec_db_change', { detail: msg }));
   }
 
   private initDB(): Promise<IDBDatabase> {
@@ -211,14 +306,14 @@ class EmbeddedRealtimeDatabase {
   // Save items snapshot to IndexedDB & LocalStorage
   public async saveItems(items: TubularItem[]) {
     try {
-      localStorage.setItem('drillspec_items', JSON.stringify(items));
+      localStorage.setItem('drillspec_items', safeJsonStringify(items));
       const db = await this.initDB();
       if (db.transaction) {
         const tx = db.transaction('items', 'readwrite');
         const store = tx.objectStore('items');
         await store.clear();
         for (const item of items) {
-          store.put(item);
+          store.put(safeClone(item));
         }
       }
     } catch (e) {
@@ -229,14 +324,14 @@ class EmbeddedRealtimeDatabase {
   // Save transfers snapshot
   public async saveTransfers(transfers: MaterialTransferTicket[]) {
     try {
-      localStorage.setItem('drillspec_transfers', JSON.stringify(transfers));
+      localStorage.setItem('drillspec_transfers', safeJsonStringify(transfers));
       const db = await this.initDB();
       if (db.transaction) {
         const tx = db.transaction('transfers', 'readwrite');
         const store = tx.objectStore('transfers');
         await store.clear();
         for (const t of transfers) {
-          store.put(t);
+          store.put(safeClone(t));
         }
       }
     } catch (e) {
@@ -247,14 +342,14 @@ class EmbeddedRealtimeDatabase {
   // Save users snapshot
   public async saveUsers(users: UserProfile[]) {
     try {
-      localStorage.setItem('drillspec_users', JSON.stringify(users));
+      localStorage.setItem('drillspec_users', safeJsonStringify(users));
       const db = await this.initDB();
       if (db.transaction) {
         const tx = db.transaction('users', 'readwrite');
         const store = tx.objectStore('users');
         await store.clear();
         for (const u of users) {
-          store.put(u);
+          store.put(safeClone(u));
         }
       }
     } catch (e) {
@@ -265,14 +360,14 @@ class EmbeddedRealtimeDatabase {
   // Save verification email outbox log
   public async saveEmailOutbox(outbox: VerificationEmailRecord[]) {
     try {
-      localStorage.setItem('drillspec_email_outbox', JSON.stringify(outbox));
+      localStorage.setItem('drillspec_email_outbox', safeJsonStringify(outbox));
       const db = await this.initDB();
       if (db.transaction) {
         const tx = db.transaction('email_outbox', 'readwrite');
         const store = tx.objectStore('email_outbox');
         await store.clear();
         for (const record of outbox) {
-          store.put(record);
+          store.put(safeClone(record));
         }
       }
     } catch (e) {
@@ -283,7 +378,7 @@ class EmbeddedRealtimeDatabase {
   // Save system configuration
   public async saveConfig(config: SystemConfiguration) {
     try {
-      localStorage.setItem('drillspec_config', JSON.stringify(config));
+      localStorage.setItem('drillspec_config', safeJsonStringify(config));
     } catch (e) {
       console.warn('Error saving config', e);
     }
@@ -292,7 +387,7 @@ class EmbeddedRealtimeDatabase {
   // Save Audit Logs snapshot
   public async saveAuditLogs(logs: any[]) {
     try {
-      localStorage.setItem('drillspec_audit_logs', JSON.stringify(logs));
+      localStorage.setItem('drillspec_audit_logs', safeJsonStringify(logs));
     } catch (e) {
       console.warn('Error saving audit logs', e);
     }
@@ -301,17 +396,53 @@ class EmbeddedRealtimeDatabase {
   // Save Backload manifests snapshot
   public async saveBackloads(backloads: any[]) {
     try {
-      localStorage.setItem('drillspec_backloads', JSON.stringify(backloads));
+      localStorage.setItem('drillspec_backloads', safeJsonStringify(backloads));
     } catch (e) {
       console.warn('Error saving backloads', e);
     }
   }
 
+  // Save campaigns snapshot
+  public async saveCampaigns(campaigns: DrillingCampaign[]) {
+    try {
+      localStorage.setItem('drillspec_campaigns', safeJsonStringify(campaigns));
+    } catch (e) {
+      console.warn('Error saving campaigns', e);
+    }
+  }
+
+  // Save backups snapshot vault
+  public async saveBackups(backups: DatabaseBackupRecord[]) {
+    try {
+      localStorage.setItem('drillspec_backups_vault', safeJsonStringify(backups));
+    } catch (e) {
+      console.warn('Error saving backup vault', e);
+    }
+  }
+
   // Loaders
+  public loadCampaigns(): DrillingCampaign[] | null {
+    try {
+      const raw = localStorage.getItem('drillspec_campaigns');
+      return safeJsonParse(raw, null);
+    } catch {
+      return null;
+    }
+  }
+
+  public loadBackups(): DatabaseBackupRecord[] | null {
+    try {
+      const raw = localStorage.getItem('drillspec_backups_vault');
+      return safeJsonParse(raw, null);
+    } catch {
+      return null;
+    }
+  }
+
   public loadItems(): TubularItem[] | null {
     try {
       const raw = localStorage.getItem('drillspec_items');
-      return raw ? JSON.parse(raw) : null;
+      return safeJsonParse(raw, null);
     } catch {
       return null;
     }
@@ -320,7 +451,7 @@ class EmbeddedRealtimeDatabase {
   public loadAuditLogs(): any[] | null {
     try {
       const raw = localStorage.getItem('drillspec_audit_logs');
-      return raw ? JSON.parse(raw) : null;
+      return safeJsonParse(raw, null);
     } catch {
       return null;
     }
@@ -329,7 +460,7 @@ class EmbeddedRealtimeDatabase {
   public loadBackloads(): any[] | null {
     try {
       const raw = localStorage.getItem('drillspec_backloads');
-      return raw ? JSON.parse(raw) : null;
+      return safeJsonParse(raw, null);
     } catch {
       return null;
     }
@@ -338,7 +469,7 @@ class EmbeddedRealtimeDatabase {
   public loadTransfers(): MaterialTransferTicket[] | null {
     try {
       const raw = localStorage.getItem('drillspec_transfers');
-      return raw ? JSON.parse(raw) : null;
+      return safeJsonParse(raw, null);
     } catch {
       return null;
     }
@@ -347,7 +478,7 @@ class EmbeddedRealtimeDatabase {
   public loadUsers(): UserProfile[] | null {
     try {
       const raw = localStorage.getItem('drillspec_users');
-      return raw ? JSON.parse(raw) : null;
+      return safeJsonParse(raw, null);
     } catch {
       return null;
     }
@@ -356,7 +487,7 @@ class EmbeddedRealtimeDatabase {
   public loadEmailOutbox(): VerificationEmailRecord[] {
     try {
       const raw = localStorage.getItem('drillspec_email_outbox');
-      return raw ? JSON.parse(raw) : [];
+      return safeJsonParse(raw, []);
     } catch {
       return [];
     }
@@ -365,7 +496,7 @@ class EmbeddedRealtimeDatabase {
   public loadConfig(): SystemConfiguration | null {
     try {
       const raw = localStorage.getItem('drillspec_config');
-      return raw ? JSON.parse(raw) : null;
+      return safeJsonParse(raw, null);
     } catch {
       return null;
     }

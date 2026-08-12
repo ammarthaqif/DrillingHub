@@ -51,6 +51,9 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({
   const { 
     addItem, 
     updateItem,
+    checkDuplicateItem,
+    campaigns,
+    activeCampaignId,
     availableHoleSections,
     availableCategories,
     availableLocations,
@@ -95,6 +98,9 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({
   const [vismaNumber, setVismaNumber] = useState(editItem?.vismaNumber || '');
   const [tsrNumber, setTsrNumber] = useState(editItem?.tsrNumber || '');
   const [projectOwner, setProjectOwner] = useState(editItem?.projectOwner || 'Project Deepwater Alpha');
+
+  // Real-time Anti-Duplicate Entry Guard
+  const duplicateMatch = checkDuplicateItem(serialNumber, heatNumber, editItem?.id);
 
   if (!isOpen) return null;
 
@@ -198,6 +204,21 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto text-xs text-gray-200">
           
+          {/* Anti-Duplicate Real-time Alert */}
+          {duplicateMatch && (
+            <div className="p-3 bg-amber-500/10 border border-amber-500/40 rounded-xl text-amber-300 flex items-center justify-between text-xs animate-pulse">
+              <div className="flex items-center space-x-2">
+                <span className="text-base">⚠️</span>
+                <div>
+                  <p className="font-bold">Duplicate Inventory Entry Detected!</p>
+                  <p className="text-[11px] text-amber-400/80">
+                    Item <strong className="text-white">{duplicateMatch.tagNumber}</strong> ({duplicateMatch.name}) already has matching S/N "{serialNumber}" or Heat "{heatNumber}" at {duplicateMatch.currentLocation}.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Section 1: Identification & General Info */}
           <div>
             <h3 className="text-xs font-medium uppercase tracking-wider text-amber-400 mb-3 border-b border-white/5 pb-2">

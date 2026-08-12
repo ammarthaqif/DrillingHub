@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import { safeJsonStringify, safeJsonParse, safeClone } from '../utils/safeJson';
 import { 
   TubularItem, 
   MaterialTransferTicket, 
@@ -20,7 +21,11 @@ import {
   RigBackloadItem,
   AuditTrailLog,
   ActiveSessionData,
-  ConcurrentLoginRequestData
+  ConcurrentLoginRequestData,
+  DrillingCampaign,
+  WellDefinition,
+  ItemPhotoRecord,
+  DatabaseBackupRecord
 } from '../types/drilling';
 import { 
   INITIAL_ITEMS, 
@@ -34,6 +39,7 @@ import {
 } from '../data/initialData';
 import { 
   embeddedDb, 
+  INITIAL_CAMPAIGNS,
   VerificationEmailRecord, 
   SystemConfiguration,
   DropdownCategoryKey,
@@ -70,6 +76,7 @@ interface DrillingContextType {
   logoutUser: (reason?: string) => void;
   setCurrentUserRole: (role: UserRole) => void;
   registerUser: (newUser: { name: string; email: string; role: UserRole; department: string; location: LocationType; initialStatus?: UserAccountStatus }) => { success: boolean; message: string; user?: UserProfile };
+  provisionSystemAdminAccount: () => { success: boolean; message: string; user: UserProfile };
   updateUserStatus: (userId: string, status: UserAccountStatus) => void;
   updateUserRole: (userId: string, role: UserRole) => void;
   updateUser: (userId: string, updates: Partial<UserProfile>) => { success: boolean; message: string };
@@ -125,7 +132,7 @@ interface DrillingContextType {
     carrierName: string, 
     selectedItemIds: { itemId: string; quantityJoints: number }[],
     notes?: string
-  ) => void;
+  ) => MaterialTransferTicket;
   validateSenderDispatch: (transferId: string, notes?: string) => void;
   validateReceiverArrival: (
     transferId: string, 
@@ -190,6 +197,29 @@ interface DrillingContextType {
   updateRoleModulePermissions: (role: string, allowedModules: string[]) => void;
   resetRoleModulePermissions: () => void;
   hasModuleAccess: (role: string, moduleKey: string) => boolean;
+
+  // Multi-Project & Campaign Management
+  campaigns: DrillingCampaign[];
+  activeCampaignId: string | 'ALL';
+  setActiveCampaignId: (id: string | 'ALL') => void;
+  createCampaign: (campaign: Omit<DrillingCampaign, 'id' | 'createdAt' | 'updatedAt'>) => void;
+  updateCampaign: (id: string, updates: Partial<DrillingCampaign>) => void;
+  deleteCampaign: (id: string) => void;
+  addWellToCampaign: (campaignId: string, well: Omit<WellDefinition, 'id'>) => void;
+
+  // Real-time Photo Upload & Verification
+  addItemPhoto: (itemId: string, photo: Omit<ItemPhotoRecord, 'id' | 'capturedAt'>) => void;
+
+  // Anti-Duplicate & Anti-Double Booking Guard
+  checkDuplicateItem: (serialNumber: string, heatNumber: string, currentItemId?: string) => TubularItem | null;
+  lockItemForTransfer: (itemId: string, manifestId: string, manifestType: 'Material Transfer Ticket' | 'Rig Backload Manifest' | 'Surplus Requisition', destination: string) => void;
+  unlockItemForTransfer: (itemId: string) => void;
+
+  // Automated & Manual Backup & Restore System
+  backups: DatabaseBackupRecord[];
+  createBackupVaultSnapshot: (backupType?: DatabaseBackupRecord['backupType'], notes?: string) => DatabaseBackupRecord;
+  downloadBackupFile: (backupId?: string) => void;
+  restoreFromBackupSnapshot: (restoredData: any) => void;
 
   // Filters & Views
   searchQuery: string;
@@ -292,12 +322,32 @@ const DrillingContext = createContext<DrillingContextType | undefined>(undefined
 export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Users state
   const [allUsers, setAllUsers] = useState<UserProfile[]>(() => {
-    return embeddedDb.loadUsers() || INITIAL_USERS.map(u => ({
+    const loadedUsers = embeddedDb.loadUsers();
+    let initialList = loadedUsers || INITIAL_USERS.map(u => ({
       ...u,
-      status: 'Active Approved',
+      status: 'Active Approved' as UserAccountStatus,
       isCorporateVerified: true,
       registeredAt: '2026-08-01',
     }));
+
+    // Guarantee that at least one System Administrator user exists in the directory
+    const hasAdmin = initialList.some(u => u.role === 'System Administrator');
+    if (!hasAdmin) {
+      const mainAdminUser: UserProfile = {
+        id: 'usr-main-admin',
+        name: 'Ammar Thaqif (Main Admin)',
+        role: 'System Administrator',
+        department: 'Corporate IT & Admin Controls',
+        location: 'Main Supply Base Yard',
+        email: 'ammarthaqif.ar@gmail.com',
+        status: 'Active Approved',
+        isCorporateVerified: true,
+        registeredAt: '2026-08-01',
+      };
+      initialList = [mainAdminUser, ...initialList];
+      embeddedDb.saveUsers(initialList);
+    }
+    return initialList;
   });
 
   // Authentication & Session State
@@ -340,12 +390,12 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             loginTime: Date.now(),
             lastHeartbeat: Date.now(),
           };
-          localStorage.setItem('drillcore_active_session', JSON.stringify(sessData));
+          localStorage.setItem('drillcore_active_session', safeJsonStringify(sessData));
 
           // 2. Poll for incoming login requests
           const rawReq = localStorage.getItem('drillcore_concurrent_login_request');
           if (rawReq) {
-            const parsed: ConcurrentLoginRequestData = JSON.parse(rawReq);
+            const parsed: ConcurrentLoginRequestData = safeJsonParse(rawReq, null as any);
             if (parsed && parsed.status === 'PENDING') {
               setPendingLoginRequest(parsed);
             } else if (!parsed || parsed.status !== 'PENDING') {
@@ -410,11 +460,13 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         const parsed: ConcurrentLoginRequestData = JSON.parse(rawReq);
         if (parsed.requestId === reqId) {
           parsed.status = 'ACCEPTED';
-          localStorage.setItem('drillcore_concurrent_login_request', JSON.stringify(parsed));
+          localStorage.setItem('drillcore_concurrent_login_request', safeJsonStringify(parsed));
           if (typeof BroadcastChannel !== 'undefined') {
-            const bc = new BroadcastChannel('drillcore_session_channel');
-            bc.postMessage({ type: 'LOGIN_REQUEST_ACCEPTED', requestId: reqId });
-            bc.close();
+            try {
+              const bc = new BroadcastChannel('drillcore_session_channel');
+              bc.postMessage({ type: 'LOGIN_REQUEST_ACCEPTED', requestId: reqId });
+              bc.close();
+            } catch {}
           }
         }
       }
@@ -430,14 +482,16 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     try {
       const rawReq = localStorage.getItem('drillcore_concurrent_login_request');
       if (rawReq) {
-        const parsed: ConcurrentLoginRequestData = JSON.parse(rawReq);
-        if (parsed.requestId === reqId) {
+        const parsed: ConcurrentLoginRequestData = safeJsonParse(rawReq, null as any);
+        if (parsed && parsed.requestId === reqId) {
           parsed.status = 'DECLINED';
-          localStorage.setItem('drillcore_concurrent_login_request', JSON.stringify(parsed));
+          localStorage.setItem('drillcore_concurrent_login_request', safeJsonStringify(parsed));
           if (typeof BroadcastChannel !== 'undefined') {
-            const bc = new BroadcastChannel('drillcore_session_channel');
-            bc.postMessage({ type: 'LOGIN_REQUEST_DECLINED', requestId: reqId });
-            bc.close();
+            try {
+              const bc = new BroadcastChannel('drillcore_session_channel');
+              bc.postMessage({ type: 'LOGIN_REQUEST_DECLINED', requestId: reqId });
+              bc.close();
+            } catch {}
           }
         }
       }
@@ -477,8 +531,8 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       try {
         const rawSession = localStorage.getItem('drillcore_active_session');
         if (rawSession) {
-          const activeSess: ActiveSessionData = JSON.parse(rawSession);
-          const isFresh = (Date.now() - (activeSess.lastHeartbeat || 0)) < 8000;
+          const activeSess: ActiveSessionData = safeJsonParse(rawSession, null as any);
+          const isFresh = activeSess && (Date.now() - (activeSess.lastHeartbeat || 0)) < 8000;
 
           if (isFresh && activeSess.userId) {
             const reqId = `REQ-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -494,12 +548,14 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               status: 'PENDING',
             };
 
-            localStorage.setItem('drillcore_concurrent_login_request', JSON.stringify(reqData));
+            localStorage.setItem('drillcore_concurrent_login_request', safeJsonStringify(reqData));
 
             if (typeof BroadcastChannel !== 'undefined') {
-              const bc = new BroadcastChannel('drillcore_session_channel');
-              bc.postMessage({ type: 'LOGIN_REQUEST_SUBMITTED', request: reqData });
-              bc.close();
+              try {
+                const bc = new BroadcastChannel('drillcore_session_channel');
+                bc.postMessage({ type: 'LOGIN_REQUEST_SUBMITTED', request: safeClone(reqData) });
+                bc.close();
+              } catch {}
             }
 
             return {
@@ -537,7 +593,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     try {
       localStorage.setItem('drillcore_auth_session', 'true');
       localStorage.setItem('drillcore_active_user_id', user.id);
-      localStorage.setItem('drillcore_active_session', JSON.stringify(newSession));
+      localStorage.setItem('drillcore_active_session', safeJsonStringify(newSession));
     } catch {}
 
     return { success: true, message: `Authenticated as ${user.name} (${user.role}).` };
@@ -571,6 +627,257 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [items, setItems] = useState<TubularItem[]>(() => {
     return embeddedDb.loadItems() || INITIAL_ITEMS;
   });
+
+  // Campaigns & Multi-Project State
+  const [campaigns, setCampaigns] = useState<DrillingCampaign[]>(() => {
+    return embeddedDb.loadCampaigns() || INITIAL_CAMPAIGNS;
+  });
+  const [activeCampaignId, setActiveCampaignId] = useState<string | 'ALL'>('ALL');
+
+  // Backup Vault State
+  const [backups, setBackups] = useState<DatabaseBackupRecord[]>(() => {
+    return embeddedDb.loadBackups() || [];
+  });
+
+  useEffect(() => {
+    embeddedDb.saveCampaigns(campaigns);
+  }, [campaigns]);
+
+  useEffect(() => {
+    embeddedDb.saveBackups(backups);
+  }, [backups]);
+
+  // Campaign Handlers
+  const createCampaign = (campaignData: Omit<DrillingCampaign, 'id' | 'createdAt' | 'updatedAt'>) => {
+    const newCamp: DrillingCampaign = {
+      ...campaignData,
+      id: `CMP-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    setCampaigns(prev => [newCamp, ...prev]);
+    logAuditTrail('SYSTEM_CONFIG_UPDATED', newCamp.id, `Created Drilling Campaign: ${newCamp.name}`);
+  };
+
+  const updateCampaign = (id: string, updates: Partial<DrillingCampaign>) => {
+    setCampaigns(prev => prev.map(c => c.id === id ? { ...c, ...updates, updatedAt: new Date().toISOString() } : c));
+    logAuditTrail('SYSTEM_CONFIG_UPDATED', id, `Updated Drilling Campaign settings`);
+  };
+
+  const deleteCampaign = (id: string) => {
+    setCampaigns(prev => prev.filter(c => c.id !== id));
+    logAuditTrail('SYSTEM_CONFIG_UPDATED', id, `Deleted Drilling Campaign`);
+  };
+
+  const addWellToCampaign = (campaignId: string, well: Omit<WellDefinition, 'id'>) => {
+    const newWell: WellDefinition = {
+      ...well,
+      id: `WEL-${Date.now()}`
+    };
+    setCampaigns(prev => prev.map(c => {
+      if (c.id === campaignId) {
+        return {
+          ...c,
+          wells: [...c.wells, newWell],
+          updatedAt: new Date().toISOString()
+        };
+      }
+      return c;
+    }));
+    logAuditTrail('SYSTEM_CONFIG_UPDATED', campaignId, `Added Well ${newWell.name} to Campaign`);
+  };
+
+  // Real-time Item Photo Upload Handler
+  const addItemPhoto = (itemId: string, photo: Omit<ItemPhotoRecord, 'id' | 'capturedAt'>) => {
+    const newPhoto: ItemPhotoRecord = {
+      ...photo,
+      id: `phto-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      capturedAt: new Date().toISOString(),
+      capturedBy: currentUser?.name || 'Inspector Matco',
+      role: currentUser?.role || 'Materials Coordinator (Supply Base)',
+    };
+
+    setItems(prev => prev.map(it => {
+      if (it.id === itemId) {
+        const existingPhotos = it.photos || [];
+        const updatedItem = {
+          ...it,
+          photos: [newPhoto, ...existingPhotos],
+          updatedAt: new Date().toISOString()
+        };
+        if (db) {
+          setDoc(doc(db, 'items', itemId), safeClone(updatedItem)).catch(err => console.error('Firestore save photo err:', err));
+        }
+        return updatedItem;
+      }
+      return it;
+    }));
+
+    logAuditTrail('INSPECTION_RECORDED', itemId, `Uploaded ${photo.photoType} photo proof for item`);
+  };
+
+  // Anti-Duplicate & Double Booking Guard
+  const checkDuplicateItem = (serialNumber: string, heatNumber: string, currentItemId?: string): TubularItem | null => {
+    if (!serialNumber && !heatNumber) return null;
+    const sNum = serialNumber ? serialNumber.trim().toLowerCase() : '';
+    const hNum = heatNumber ? heatNumber.trim().toLowerCase() : '';
+
+    return items.find(it => {
+      if (currentItemId && it.id === currentItemId) return false;
+      const matchSerial = sNum && it.serialNumber && it.serialNumber.trim().toLowerCase() === sNum;
+      const matchHeat = hNum && it.heatNumber && it.heatNumber.trim().toLowerCase() === hNum;
+      return matchSerial || (sNum && matchHeat);
+    }) || null;
+  };
+
+  const lockItemForTransfer = (itemId: string, manifestId: string, manifestType: 'Material Transfer Ticket' | 'Rig Backload Manifest' | 'Surplus Requisition', destination: string) => {
+    setItems(prev => prev.map(it => {
+      if (it.id === itemId) {
+        const updatedItem: TubularItem = {
+          ...it,
+          bookingLock: {
+            isBooked: true,
+            bookedForManifestId: manifestId,
+            manifestType,
+            bookedForRigOrBase: destination,
+            bookedBy: currentUser?.name || 'Logistics Focal',
+            bookedAt: new Date().toISOString(),
+          },
+          updatedAt: new Date().toISOString()
+        };
+        if (db) {
+          setDoc(doc(db, 'items', itemId), safeClone(updatedItem)).catch(() => {});
+        }
+        return updatedItem;
+      }
+      return it;
+    }));
+  };
+
+  const unlockItemForTransfer = (itemId: string) => {
+    setItems(prev => prev.map(it => {
+      if (it.id === itemId) {
+        const updatedItem: TubularItem = {
+          ...it,
+          bookingLock: undefined,
+          updatedAt: new Date().toISOString()
+        };
+        if (db) {
+          setDoc(doc(db, 'items', itemId), safeClone(updatedItem)).catch(() => {});
+        }
+        return updatedItem;
+      }
+      return it;
+    }));
+  };
+
+  // Automated & Manual Backup Vault Handlers
+  const createBackupVaultSnapshot = (backupType: DatabaseBackupRecord['backupType'] = 'Manual On-Demand Backup', notes?: string): DatabaseBackupRecord => {
+    const snapshotData = {
+      items,
+      transfers,
+      rigBackloads,
+      allUsers,
+      campaigns,
+      auditTrailLogs,
+      surplusBookings,
+      materialRequisitions,
+      rigCallouts,
+      emailOutbox,
+      systemConfig,
+      backupTimestamp: new Date().toISOString(),
+    };
+
+    const newBackup: DatabaseBackupRecord = {
+      id: `BKP-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${Date.now().toString().slice(-4)}`,
+      timestamp: new Date().toISOString(),
+      createdByName: currentUser?.name || 'System Admin',
+      createdByRole: currentUser?.role || 'System Administrator',
+      backupType,
+      version: '2.5.0-Enterprise',
+      summary: {
+        itemsCount: items.length,
+        transfersCount: transfers.length,
+        usersCount: allUsers.length,
+        backloadsCount: rigBackloads.length,
+        campaignsCount: campaigns.length,
+        auditLogsCount: auditTrailLogs.length,
+      },
+      dataJson: safeJsonStringify(snapshotData),
+      notes: notes || `Vault snapshot generated automatically (${backupType})`
+    };
+
+    setBackups(prev => [newBackup, ...prev]);
+    logAuditTrail('SYSTEM_CONFIG_UPDATED', newBackup.id, `Created ${backupType} snapshot point`);
+    return newBackup;
+  };
+
+  const downloadBackupFile = (backupId?: string) => {
+    const targetBackup = backupId ? backups.find(b => b.id === backupId) : null;
+    const jsonStr = targetBackup?.dataJson || safeJsonStringify({
+      items,
+      transfers,
+      rigBackloads,
+      allUsers,
+      campaigns,
+      auditTrailLogs,
+      systemConfig,
+      backupTimestamp: new Date().toISOString(),
+    }, 2);
+
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `drillspec_database_backup_${new Date().toISOString().slice(0, 10)}.drillspec.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const restoreFromBackupSnapshot = (restoredData: any) => {
+    if (!restoredData || typeof restoredData !== 'object') throw new Error('Invalid backup file format');
+    
+    if (Array.isArray(restoredData.items)) {
+      setItems(restoredData.items);
+      embeddedDb.saveItems(restoredData.items);
+    }
+    if (Array.isArray(restoredData.transfers)) {
+      setTransfers(restoredData.transfers);
+      embeddedDb.saveTransfers(restoredData.transfers);
+    }
+    if (Array.isArray(restoredData.allUsers)) {
+      setAllUsers(restoredData.allUsers);
+      embeddedDb.saveUsers(restoredData.allUsers);
+    }
+    if (Array.isArray(restoredData.campaigns)) {
+      setCampaigns(restoredData.campaigns);
+      embeddedDb.saveCampaigns(restoredData.campaigns);
+    }
+    if (Array.isArray(restoredData.rigBackloads)) {
+      setRigBackloads(restoredData.rigBackloads);
+      embeddedDb.saveBackloads(restoredData.rigBackloads);
+    }
+    if (Array.isArray(restoredData.auditTrailLogs)) {
+      setAuditTrailLogs(restoredData.auditTrailLogs);
+      embeddedDb.saveAuditLogs(restoredData.auditTrailLogs);
+    }
+
+    logAuditTrail('SYSTEM_CONFIG_UPDATED', 'DATABASE_RESTORE', 'Restored full system database from backup point');
+  };
+
+  // Scheduled daily auto-backup timer
+  useEffect(() => {
+    const lastBackupTime = localStorage.getItem('drillspec_last_auto_backup_ts');
+    const now = Date.now();
+    const oneDayMs = 24 * 60 * 60 * 1000;
+    
+    if (!lastBackupTime || (now - parseInt(lastBackupTime, 10)) > oneDayMs) {
+      setTimeout(() => {
+        createBackupVaultSnapshot('Daily Scheduled Auto-Backup', 'Automated 24-hour local storage system vault backup');
+        localStorage.setItem('drillspec_last_auto_backup_ts', now.toString());
+      }, 3000);
+    }
+  }, []);
 
   // Transfers state
   const [transfers, setTransfers] = useState<MaterialTransferTicket[]>(() => {
@@ -1181,6 +1488,57 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
   };
 
+  const provisionSystemAdminAccount = (): { success: boolean; message: string; user: UserProfile } => {
+    const existingAdmin = allUsers.find(u => u.role === 'System Administrator');
+    if (existingAdmin) {
+      if (existingAdmin.status !== 'Active Approved') {
+        const updatedList = allUsers.map(u => u.id === existingAdmin.id ? { ...u, status: 'Active Approved' as UserAccountStatus, isCorporateVerified: true } : u);
+        setAllUsers(updatedList);
+        embeddedDb.saveUsers(updatedList);
+        return { 
+          success: true, 
+          message: 'System Administrator account reactivated and approved.', 
+          user: { ...existingAdmin, status: 'Active Approved' } 
+        };
+      }
+      return { 
+        success: true, 
+        message: 'System Administrator account is active and ready.', 
+        user: existingAdmin 
+      };
+    }
+
+    const adminUser: UserProfile = {
+      id: 'usr-main-admin',
+      name: 'Ammar Thaqif (Main Admin)',
+      role: 'System Administrator',
+      department: 'Corporate IT & Admin Controls',
+      location: 'Main Supply Base Yard',
+      email: 'ammarthaqif.ar@gmail.com',
+      status: 'Active Approved',
+      isCorporateVerified: true,
+      registeredAt: '2026-08-01',
+    };
+
+    const nextUsers = [adminUser, ...allUsers];
+    setAllUsers(nextUsers);
+    embeddedDb.saveUsers(nextUsers);
+    saveUserToFirestore(adminUser);
+
+    logAuditTrail(
+      'SYSTEM_CONFIG_UPDATED',
+      adminUser.id,
+      'Provisioned default System Administrator corporate user account.',
+      'Auto-repaired missing system admin identity'
+    );
+
+    return { 
+      success: true, 
+      message: 'Default System Administrator account successfully created and provisioned.', 
+      user: adminUser 
+    };
+  };
+
   const updateUserStatus = (userId: string, status: UserAccountStatus) => {
     const target = allUsers.find(u => u.id === userId);
     setAllUsers(prev => prev.map(u => {
@@ -1573,7 +1931,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       emailOutbox,
       systemConfig,
     };
-    const jsonStr = JSON.stringify(snapshot, null, 2);
+    const jsonStr = safeJsonStringify(snapshot, 2);
     const blob = new Blob([jsonStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1849,6 +2207,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     setTransfers(prev => [newTransfer, ...prev]);
     saveTransferToFirestore(newTransfer);
+    return newTransfer;
   };
 
   const validateSenderDispatch = (transferId: string, notes?: string) => {
@@ -2118,7 +2477,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         [role]: allowedModules
       };
       try {
-        localStorage.setItem('drillcore_role_module_permissions', JSON.stringify(updated));
+        localStorage.setItem('drillcore_role_module_permissions', safeJsonStringify(updated));
       } catch (e) {
         console.error('Failed to save role permissions', e);
       }
@@ -2135,7 +2494,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const resetRoleModulePermissions = () => {
     setRoleModulePermissions(DEFAULT_ROLE_MODULE_PERMISSIONS);
     try {
-      localStorage.setItem('drillcore_role_module_permissions', JSON.stringify(DEFAULT_ROLE_MODULE_PERMISSIONS));
+      localStorage.setItem('drillcore_role_module_permissions', safeJsonStringify(DEFAULT_ROLE_MODULE_PERMISSIONS));
     } catch (e) {
       console.error(e);
     }
@@ -2222,6 +2581,10 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
       }
 
+      if (activeCampaignId !== 'ALL' && item.campaignId && item.campaignId !== activeCampaignId) {
+        return false;
+      }
+
       if (selectedHoleSection !== 'ALL' && item.holeSection !== selectedHoleSection) {
         return false;
       }
@@ -2240,7 +2603,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
       return true;
     });
-  }, [items, searchQuery, selectedHoleSection, selectedLocation, selectedStatus, showSurplusOnly]);
+  }, [items, searchQuery, selectedHoleSection, selectedLocation, selectedStatus, showSurplusOnly, activeCampaignId]);
 
   return (
     <DrillingContext.Provider value={{
@@ -2256,6 +2619,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       logoutUser,
       setCurrentUserRole,
       registerUser,
+      provisionSystemAdminAccount,
       updateUserStatus,
       updateUserRole,
       updateUser,
@@ -2270,6 +2634,30 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       removeCorporateDomain,
       exportDatabaseSnapshot,
       resetDatabaseToInitial,
+
+      // Campaign & Multi-Project Management
+      campaigns,
+      activeCampaignId,
+      setActiveCampaignId,
+      createCampaign,
+      updateCampaign,
+      deleteCampaign,
+      addWellToCampaign,
+
+      // Real-time Photo Upload
+      addItemPhoto,
+
+      // Anti-Duplicate & Booking Lock
+      checkDuplicateItem,
+      lockItemForTransfer,
+      unlockItemForTransfer,
+
+      // Backup & Restore
+      backups,
+      createBackupVaultSnapshot,
+      downloadBackupFile,
+      restoreFromBackupSnapshot,
+
       availableRoles,
       availableDepartments,
       availableLocations,

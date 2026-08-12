@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useDrilling } from '../context/DrillingContext';
 import { LocationType, MaterialTransferTicket } from '../types/drilling';
-import { X, Truck, Ship, Check, MapPin, Send } from 'lucide-react';
+import { X, Truck, Ship, Check, MapPin, Send, Lock } from 'lucide-react';
 
 interface CreateTransferModalProps {
   isOpen: boolean;
@@ -21,7 +21,7 @@ export const CreateTransferModal: React.FC<CreateTransferModalProps> = ({
   onClose,
   initialSelectedItemIds = [],
 }) => {
-  const { items, createTransfer, currentUser, availableLocations, availableCarrierTypes } = useDrilling();
+  const { items, createTransfer, lockItemForTransfer, currentUser, availableLocations, availableCarrierTypes } = useDrilling();
 
   const [originLocation, setOriginLocation] = useState<LocationType>('Main Supply Base Yard');
   const [destinationLocation, setDestinationLocation] = useState<LocationType>('Offshore Rig Alpha');
@@ -71,7 +71,13 @@ export const CreateTransferModal: React.FC<CreateTransferModalProps> = ({
       return;
     }
 
-    createTransfer(originLocation, destinationLocation, carrierType, carrierName, itemEntries, notes);
+    const ticket = createTransfer(originLocation, destinationLocation, carrierType, carrierName, itemEntries, notes);
+    
+    // Apply Booking Lock to items
+    itemEntries.forEach(ie => {
+      lockItemForTransfer(ie.itemId, ticket.id, 'Material Transfer Ticket', destinationLocation);
+    });
+
     onClose();
   };
 
@@ -175,8 +181,15 @@ export const CreateTransferModal: React.FC<CreateTransferModalProps> = ({
                         className="rounded border-white/10 bg-black/40 text-amber-500 focus:ring-amber-500/20"
                       />
                       <div>
-                        <span className="font-mono font-semibold text-amber-400">{item.tagNumber}</span>
-                        <span className="text-gray-200 font-medium ml-2">{item.name}</span>
+                        <div className="flex items-center space-x-2">
+                          <span className="font-mono font-semibold text-amber-400">{item.tagNumber}</span>
+                          <span className="text-gray-200 font-medium">{item.name}</span>
+                          {item.bookingLock?.isBooked && (
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center gap-1">
+                              <Lock className="w-2.5 h-2.5" /> Booked
+                            </span>
+                          )}
+                        </div>
                         <span className="text-[10px] text-gray-400 block">{item.outerDiameter} • {item.grade} • {item.connectionType} • [{item.currentLocation}]</span>
                       </div>
                     </label>

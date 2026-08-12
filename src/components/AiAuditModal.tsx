@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useDrilling } from '../context/DrillingContext';
 import { Sparkles, X, ShieldCheck, FileText, Bot, AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
+import { safeJsonStringify } from '../utils/safeJson';
 
 interface AiAuditModalProps {
   isOpen: boolean;
@@ -38,7 +39,7 @@ Date: 01-July-2026`);
       const res = await fetch('/api/ai/readiness-audit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items }),
+        body: safeJsonStringify({ items }),
       });
       const data = await res.json();
       setAuditResult(data);
@@ -56,7 +57,7 @@ Date: 01-July-2026`);
       const res = await fetch('/api/ai/parse-certificate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ certificateText: certText }),
+        body: safeJsonStringify({ certificateText: certText }),
       });
       const data = await res.json();
       setParsedData(data);
