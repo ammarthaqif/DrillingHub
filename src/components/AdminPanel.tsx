@@ -56,6 +56,7 @@ export const AdminPanel: React.FC = () => {
     deleteUser,
     revokeUserAccess,
     resendVerificationEmail, 
+    sendEmailCredentialsServer,
     verifyEmailWithToken,
     emailOutbox,
     systemConfig,
@@ -517,6 +518,19 @@ export const AdminPanel: React.FC = () => {
                         </td>
 
                         <td className="p-3.5 text-right space-x-1.5 whitespace-nowrap">
+                          {/* Dispatch Credentials Button */}
+                          <button
+                            onClick={async () => {
+                              const res = await sendEmailCredentialsServer(user.email);
+                              alert(res.message);
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 border border-cyan-500/30 text-[11px] font-bold transition inline-flex items-center space-x-1"
+                            title="Send login credentials & security PIN to user's corporate email via Server API"
+                          >
+                            <Send className="w-3 h-3" />
+                            <span>Dispatch Credentials</span>
+                          </button>
+
                           {/* Edit User Button */}
                           <button
                             onClick={() => handleOpenEditUser(user)}

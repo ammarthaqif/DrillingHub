@@ -64,6 +64,11 @@ export interface UserProfile {
   department: string;
   location: LocationType;
   email: string;
+  passwordHash?: string;
+  password?: string;
+  msAuthenticatorEnabled?: boolean;
+  msAuthenticatorSecret?: string;
+  isFirstLogin?: boolean;
   status?: UserAccountStatus;
   verificationToken?: string;
   verificationSentAt?: string;
