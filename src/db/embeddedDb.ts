@@ -66,7 +66,7 @@ export const INITIAL_CAMPAIGNS: DrillingCampaign[] = [
     ],
     focals: [
       { id: 'FOC-01', name: 'Farhan Nazmi', email: 'farhan.drilling@petronas.com', roleTitle: 'Drilling Engineer', assignedLocation: 'Main Supply Base Yard' },
-      { id: 'FOC-02', name: 'Ammar Thaqif', email: 'ammarthaqif.ar@gmail.com', roleTitle: 'Materials Management Focal', assignedLocation: 'Main Supply Base Yard' },
+      { id: 'FOC-02', name: 'Zulhairi Azman', email: 'zulhairi.materials@apexdrilling.com', roleTitle: 'Materials Management Focal', assignedLocation: 'Main Supply Base Yard' },
       { id: 'FOC-03', name: 'Hafiz Matco', email: 'hafiz.matco@petronas.com', roleTitle: 'Materials Coordinator (Matco)', assignedLocation: 'Offshore Rig Alpha' }
     ],
     createdAt: '2026-01-01',

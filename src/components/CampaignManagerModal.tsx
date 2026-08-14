@@ -83,7 +83,7 @@ export const CampaignManagerModal: React.FC<CampaignManagerModalProps> = ({ isOp
         { id: 'BASE-01', name: 'Main Supply Base Yard (Kemaman)', location: 'Main Supply Base Yard' }
       ],
       focals: [
-        { id: 'FOC-01', name: 'Ammar Thaqif', email: 'ammarthaqif.ar@gmail.com', roleTitle: 'Materials Management Focal', assignedLocation: 'Main Supply Base Yard' },
+        { id: 'FOC-01', name: 'Zulhairi Azman', email: 'zulhairi.materials@apexdrilling.com', roleTitle: 'Materials Management Focal', assignedLocation: 'Main Supply Base Yard' },
         { id: 'FOC-02', name: 'Farhan Matco', email: 'farhan.matco@petronas.com', roleTitle: 'Materials Coordinator (Matco)', assignedLocation: 'Offshore Rig Alpha' }
       ]
     });

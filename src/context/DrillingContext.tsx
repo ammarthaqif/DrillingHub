@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { safeJsonStringify, safeJsonParse, safeClone } from '../utils/safeJson';
+import { hashPassword, verifyPassword, encryptData, decryptData } from '../utils/crypto';
 import { 
   TubularItem, 
   MaterialTransferTicket, 
@@ -74,9 +75,30 @@ interface DrillingContextType {
     requiresTotp?: boolean;
     activeUser?: { name: string; role: string } 
   };
+  loginWithMicrosoftAccount: (
+    msUser: { email: string; displayName: string; uid: string; tenantId?: string; photoURL?: string | null }, 
+    options?: { overrideActiveSession?: boolean }
+  ) => Promise<{ 
+    success: boolean; 
+    message: string; 
+    user?: UserProfile; 
+    pendingRequest?: boolean; 
+    requestId?: string; 
+    requiresRegistration?: boolean;
+    activeUser?: { name: string; role: string } 
+  }>;
+  registerWithMicrosoft: (
+    msUser: { email: string; displayName: string; uid: string; tenantId?: string }, 
+    details: { role: UserRole; department: string; location: LocationType }
+  ) => { success: boolean; message: string; user?: UserProfile };
+  migrateDatabaseToDedicatedFirestore: () => Promise<{ success: boolean; stats: any; message: string }>;
+  testDedicatedFirestoreConnection: () => Promise<{ connected: boolean; databaseId: string; latencyMs: number; message: string }>;
+  dedicatedDatabaseId: string;
+  isMigratingToDedicatedDb: boolean;
   logoutUser: (reason?: string) => void;
   setCurrentUserRole: (role: UserRole) => void;
   registerUser: (newUser: { name: string; email: string; role: UserRole; department: string; location: LocationType; initialStatus?: UserAccountStatus }) => { success: boolean; message: string; user?: UserProfile };
+  bulkImportApprovedUsers: (users: { name: string; email: string; role?: UserRole; department?: string; location?: LocationType }[]) => { success: boolean; count: number; importedUsers: { email: string; name: string; token: string; role: string }[]; errors: string[] };
   provisionSystemAdminAccount: () => { success: boolean; message: string; user: UserProfile };
   updateUserStatus: (userId: string, status: UserAccountStatus) => void;
   updateUserRole: (userId: string, role: UserRole) => void;
@@ -127,6 +149,7 @@ interface DrillingContextType {
     notes?: string
   ) => void;
   deleteItem: (id: string) => void;
+  bulkDeleteItems: (ids: string[]) => void;
   addInspectionRecord: (itemId: string, record: Omit<InspectionRecord, 'id'>) => void;
   addMaintenanceLog: (itemId: string, log: Omit<MaintenanceLog, 'id'>) => void;
   
@@ -254,6 +277,10 @@ interface DrillingContextType {
 
 import { 
   db, 
+  auth,
+  signInWithMicrosoftOAuth,
+  testFirestoreConnection,
+  dedicatedDatabaseId,
   collection, 
   doc, 
   onSnapshot, 
@@ -266,21 +293,24 @@ import {
 
 export const DEFAULT_ROLE_MODULE_PERMISSIONS: Record<string, string[]> = {
   'System Administrator': [
-    'dashboard', 'inventory', 'drillingEngineer', 'supplyBaseMatco', 
+    'dashboard', 'inventory', 'materialsManagement', 'drillingEngineer', 'supplyBaseMatco', 
     'rigSiteMatco', 'checkAndBalance', 'holeSection', 'surplus', 
     'movement', 'audit', 'admin'
   ],
   'Drilling Engineer': [
-    'dashboard', 'inventory', 'drillingEngineer', 'holeSection', 'surplus'
+    'dashboard', 'inventory', 'materialsManagement', 'drillingEngineer', 'holeSection', 'surplus'
   ],
   'Logistics Coordinator': [
-    'dashboard', 'inventory', 'movement', 'supplyBaseMatco', 'rigSiteMatco', 'surplus'
+    'dashboard', 'inventory', 'materialsManagement', 'movement', 'supplyBaseMatco', 'rigSiteMatco', 'surplus'
   ],
   'Materials Coordinator (Supply Base)': [
-    'dashboard', 'inventory', 'supplyBaseMatco', 'movement', 'surplus'
+    'dashboard', 'materialsManagement', 'inventory', 'supplyBaseMatco', 'movement', 'surplus'
+  ],
+  'Materials Management Specialist': [
+    'dashboard', 'materialsManagement', 'inventory', 'supplyBaseMatco', 'movement', 'surplus'
   ],
   'Rig Toolpusher / Materials Specialist': [
-    'dashboard', 'inventory', 'rigSiteMatco', 'movement', 'surplus'
+    'dashboard', 'materialsManagement', 'inventory', 'rigSiteMatco', 'movement', 'surplus'
   ],
   'QA/QC Inspector': [
     'dashboard', 'inventory', 'checkAndBalance', 'audit'
@@ -342,11 +372,11 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (!hasAdmin) {
       const mainAdminUser: UserProfile = {
         id: 'usr-main-admin',
-        name: 'Ammar Thaqif (Main Admin)',
+        name: 'Corporate System Admin',
         role: 'System Administrator',
         department: 'Corporate IT & Admin Controls',
         location: 'Main Supply Base Yard',
-        email: 'ammarthaqif.ar@gmail.com',
+        email: 'admin@apexdrilling.com',
         status: 'Active Approved',
         isCorporateVerified: true,
         registeredAt: '2026-08-01',
@@ -539,16 +569,17 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       return { success: false, message: 'Account is pending Administrator security review.' };
     }
 
-    // Password / Security PIN validation
+    // Password validation using salted SHA-256 cryptographic hashes
     const providedKey = (accessKey || '').trim();
-    if (user.password) {
-      if (providedKey !== user.password && providedKey !== '1234') {
-        return { success: false, message: 'Invalid login password. If you forgot your password, please reset it using an authorization token sent to your email.' };
+    if (user.passwordHash) {
+      if (!verifyPassword(providedKey, user.passwordHash)) {
+        return { success: false, message: 'Invalid password. If you forgot your password or are logging in for the first time, please click "Authorization Token & Password" to set your custom password.' };
       }
     } else {
-      if (providedKey !== '1234' && user.verificationToken !== providedKey && providedKey !== '') {
-        return { success: false, message: 'Invalid security PIN or authorization token.' };
-      }
+      return { 
+        success: false, 
+        message: 'Custom password not set. First-time users must click the "Authorization Token & Password" tab to verify their 6-digit token and set a custom password.' 
+      };
     }
 
     // Microsoft Authenticator 2FA Check
@@ -656,6 +687,356 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       localStorage.removeItem('drillcore_active_session');
       localStorage.removeItem('drillcore_active_user_id');
     } catch {}
+  };
+
+  const [isMigratingToDedicatedDb, setIsMigratingToDedicatedDb] = useState(false);
+
+  const testDedicatedFirestoreConnection = async () => {
+    return await testFirestoreConnection();
+  };
+
+  const loginWithMicrosoftAccount = async (
+    msUser: { email: string; displayName: string; uid: string; tenantId?: string; photoURL?: string | null },
+    options?: { overrideActiveSession?: boolean }
+  ) => {
+    const cleanEmail = (msUser.email || '').trim().toLowerCase();
+    if (!cleanEmail) {
+      return { success: false, message: 'Invalid Microsoft profile: Email address missing.' };
+    }
+
+    const domain = cleanEmail.split('@')[1];
+    const isDomainAllowed = systemConfig.corporateDomains.some(d => d.toLowerCase() === domain);
+
+    // Look for existing user in corporate directory
+    const user = allUsers.find(
+      u => u.email.toLowerCase() === cleanEmail || (u.msAuthUid && u.msAuthUid === msUser.uid)
+    );
+
+    if (!user) {
+      // First-time Microsoft user registration check
+      if (!isDomainAllowed && !systemConfig.autoApproveVerifiedCorporateEmails) {
+        return {
+          success: false,
+          requiresRegistration: true,
+          message: `Domain '@${domain}' is not authorized under corporate security policy. Please contact your System Administrator to whitelist your organization's Microsoft 365 tenant.`
+        };
+      }
+
+      // Signal that first-time registration form should be completed
+      return {
+        success: false,
+        requiresRegistration: true,
+        message: `Microsoft Entra ID authenticated (${msUser.displayName}). Please complete first-time department and role assignment to finalize registration.`
+      };
+    }
+
+    if (user.status === 'Suspended' || user.status === 'Deactivated') {
+      return { success: false, message: `Access Denied: Account for ${user.email} is ${user.status}.` };
+    }
+
+    if (user.status === 'Pending Admin Approval') {
+      return { success: false, message: 'Account is pending Administrator security review.' };
+    }
+
+    // Concurrent Single Active Session Check
+    if (!options?.overrideActiveSession) {
+      try {
+        const rawSession = localStorage.getItem('drillcore_active_session');
+        if (rawSession) {
+          const activeSess: ActiveSessionData = safeJsonParse(rawSession, null as any);
+          const isFresh = activeSess && (Date.now() - (activeSess.lastHeartbeat || 0)) < 8000;
+
+          if (isFresh && activeSess.userId && activeSess.userId !== user.id) {
+            const reqId = `REQ-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+            const reqData: ConcurrentLoginRequestData = {
+              requestId: reqId,
+              requestingUser: {
+                id: user.id,
+                name: user.name,
+                role: user.role,
+                email: user.email,
+              },
+              timestamp: Date.now(),
+              status: 'PENDING',
+            };
+
+            localStorage.setItem('drillcore_concurrent_login_request', safeJsonStringify(reqData));
+
+            if (typeof BroadcastChannel !== 'undefined') {
+              try {
+                const bc = new BroadcastChannel('drillcore_session_channel');
+                bc.postMessage({ type: 'LOGIN_REQUEST_SUBMITTED', request: safeClone(reqData) });
+                bc.close();
+              } catch {}
+            }
+
+            return {
+              success: false,
+              pendingRequest: true,
+              requestId: reqId,
+              activeUser: { name: activeSess.userName, role: activeSess.userRole },
+              message: `Single active session policy enforced. Permission prompt sent to ${activeSess.userName} (${activeSess.userRole}).`,
+            };
+          }
+        }
+      } catch (err) {
+        console.warn('Active session check error:', err);
+      }
+    }
+
+    // Clear previous login requests
+    try {
+      localStorage.removeItem('drillcore_concurrent_login_request');
+    } catch {}
+
+    // Update user record with Microsoft authentication status
+    const updatedUser: UserProfile = {
+      ...user,
+      isMicrosoftAuthenticated: true,
+      msAuthUid: msUser.uid,
+      msTenantId: msUser.tenantId || user.msTenantId,
+      lastMicrosoftLoginAt: new Date().toISOString(),
+      isCorporateVerified: true,
+    };
+
+    setAllUsers(prev => prev.map(u => u.id === user.id ? updatedUser : u));
+    saveUserToFirestore(updatedUser);
+
+    setCurrentUser(updatedUser);
+    setIsAuthenticated(true);
+    setLogoutNotice(null);
+
+    const newSession: ActiveSessionData = {
+      userId: updatedUser.id,
+      userName: updatedUser.name,
+      userRole: updatedUser.role,
+      userEmail: updatedUser.email,
+      loginTime: Date.now(),
+      lastHeartbeat: Date.now(),
+    };
+
+    try {
+      localStorage.setItem('drillcore_auth_session', 'true');
+      localStorage.setItem('drillcore_active_user_id', updatedUser.id);
+      localStorage.setItem('drillcore_active_session', safeJsonStringify(newSession));
+    } catch {}
+
+    logAuditTrail(
+      'USER_LOGGED_IN',
+      updatedUser.id,
+      `Microsoft Entra ID Corporate SSO Authentication Successful for ${updatedUser.name} (${updatedUser.email}).`,
+      `Tenant / UID: ${msUser.uid.slice(0, 8)}... | Role: ${updatedUser.role}`
+    );
+
+    return { 
+      success: true, 
+      message: `Authenticated via Microsoft SSO as ${updatedUser.name} (${updatedUser.role}).`,
+      user: updatedUser 
+    };
+  };
+
+  const registerWithMicrosoft = (
+    msUser: { email: string; displayName: string; uid: string; tenantId?: string },
+    details: { role: UserRole; department: string; location: LocationType }
+  ) => {
+    const cleanEmail = (msUser.email || '').trim().toLowerCase();
+    const domain = cleanEmail.split('@')[1] || 'corp.com';
+    const isDomainAllowed = systemConfig.corporateDomains.some(d => d.toLowerCase() === domain);
+
+    const isSystemAdminEmail = cleanEmail === 'admin@apexdrilling.com';
+    const autoApprove = isSystemAdminEmail || (systemConfig.autoApproveVerifiedCorporateEmails && isDomainAllowed);
+    const initialStatus: UserAccountStatus = autoApprove ? 'Active Approved' : 'Pending Admin Approval';
+
+    const newUser: UserProfile = {
+      id: `usr-ms-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      name: msUser.displayName.trim() || cleanEmail.split('@')[0],
+      email: cleanEmail,
+      role: isSystemAdminEmail ? 'System Administrator' : details.role,
+      department: details.department || 'Drilling Operations',
+      location: details.location || 'Main Supply Base Yard',
+      status: initialStatus,
+      isCorporateVerified: true,
+      corporateDomain: domain,
+      isMicrosoftAuthenticated: true,
+      msAuthUid: msUser.uid,
+      msTenantId: msUser.tenantId,
+      lastMicrosoftLoginAt: new Date().toISOString(),
+      registeredAt: new Date().toISOString().split('T')[0],
+      approvedBy: autoApprove ? 'Microsoft Entra ID Corporate Verification Gate' : undefined,
+    };
+
+    setAllUsers(prev => {
+      const exists = prev.some(u => u.email.toLowerCase() === cleanEmail);
+      if (exists) {
+        return prev.map(u => u.email.toLowerCase() === cleanEmail ? { ...u, ...newUser } : u);
+      }
+      return [newUser, ...prev];
+    });
+
+    saveUserToFirestore(newUser);
+
+    logAuditTrail(
+      'USER_REGISTERED',
+      newUser.id,
+      `Registered user via Microsoft Authentication: ${newUser.name} (${cleanEmail}) [${newUser.role}].`,
+      `Status: ${initialStatus} | Domain: ${domain}`
+    );
+
+    if (autoApprove) {
+      setCurrentUser(newUser);
+      setIsAuthenticated(true);
+      setLogoutNotice(null);
+
+      const newSession: ActiveSessionData = {
+        userId: newUser.id,
+        userName: newUser.name,
+        userRole: newUser.role,
+        userEmail: newUser.email,
+        loginTime: Date.now(),
+        lastHeartbeat: Date.now(),
+      };
+
+      try {
+        localStorage.setItem('drillcore_auth_session', 'true');
+        localStorage.setItem('drillcore_active_user_id', newUser.id);
+        localStorage.setItem('drillcore_active_session', safeJsonStringify(newSession));
+      } catch {}
+
+      return {
+        success: true,
+        message: `Account provisioned and authenticated via Microsoft SSO as ${newUser.name} (${newUser.role}).`,
+        user: newUser
+      };
+    }
+
+    return {
+      success: true,
+      message: `Registration submitted with Microsoft verified identity for ${cleanEmail}. Your account is pending Administrator security review.`,
+      user: newUser
+    };
+  };
+
+  const migrateDatabaseToDedicatedFirestore = async (): Promise<{
+    success: boolean;
+    stats: {
+      items: number;
+      transfers: number;
+      users: number;
+      campaigns: number;
+      backloads: number;
+      surplusBookings: number;
+      requisitions: number;
+      callouts: number;
+      logs: number;
+      backups: number;
+    };
+    message: string;
+  }> => {
+    setIsMigratingToDedicatedDb(true);
+    try {
+      if (!db) {
+        throw new Error('Firestore connection instance is offline or not initialized.');
+      }
+
+      // Batch write items
+      for (const it of items) {
+        await setDoc(doc(db, 'items', it.id), safeClone(it));
+      }
+
+      // Batch write transfers
+      for (const tr of transfers) {
+        await setDoc(doc(db, 'transfers', tr.id), safeClone(tr));
+      }
+
+      // Batch write users
+      for (const u of allUsers) {
+        await setDoc(doc(db, 'users', u.id), safeClone(u));
+      }
+
+      // Batch write campaigns
+      for (const c of campaigns) {
+        await setDoc(doc(db, 'campaigns', c.id), safeClone(c));
+      }
+
+      // Batch write rig backloads
+      for (const b of rigBackloads) {
+        await setDoc(doc(db, 'rig_backloads', b.id), safeClone(b));
+      }
+
+      // Batch write surplus bookings
+      for (const sb of surplusBookings) {
+        await setDoc(doc(db, 'surplus_bookings', sb.id), safeClone(sb));
+      }
+
+      // Batch write requisitions
+      for (const mr of materialRequisitions) {
+        await setDoc(doc(db, 'material_requisitions', mr.id), safeClone(mr));
+      }
+
+      // Batch write callouts
+      for (const rc of rigCallouts) {
+        await setDoc(doc(db, 'rig_callouts', rc.id), safeClone(rc));
+      }
+
+      // Batch write audit logs
+      for (const al of auditTrailLogs.slice(0, 50)) {
+        await setDoc(doc(db, 'audit_logs', al.id), safeClone(al));
+      }
+
+      // Batch write backups
+      for (const bk of backups.slice(0, 10)) {
+        await setDoc(doc(db, 'backups', bk.id), safeClone(bk));
+      }
+
+      // Global settings
+      await setDoc(doc(db, 'config', 'global_settings'), safeClone(systemConfig));
+
+      const stats = {
+        items: items.length,
+        transfers: transfers.length,
+        users: allUsers.length,
+        campaigns: campaigns.length,
+        backloads: rigBackloads.length,
+        surplusBookings: surplusBookings.length,
+        requisitions: materialRequisitions.length,
+        callouts: rigCallouts.length,
+        logs: auditTrailLogs.length,
+        backups: backups.length,
+      };
+
+      logAuditTrail(
+        'SYSTEM_CONFIG_UPDATED',
+        'FIREBASE_MIGRATION',
+        `Successfully migrated and synchronized full database to dedicated Firestore database '${dedicatedDatabaseId}'.`,
+        `Items: ${items.length}, Transfers: ${transfers.length}, Users: ${allUsers.length}, Campaigns: ${campaigns.length}`
+      );
+
+      setIsMigratingToDedicatedDb(false);
+      return {
+        success: true,
+        stats,
+        message: `Successfully migrated all ${items.length + transfers.length + allUsers.length + campaigns.length + rigBackloads.length} records to dedicated database '${dedicatedDatabaseId}'.`,
+      };
+    } catch (err: any) {
+      setIsMigratingToDedicatedDb(false);
+      console.error('Migration error:', err);
+      return {
+        success: false,
+        stats: {
+          items: 0,
+          transfers: 0,
+          users: 0,
+          campaigns: 0,
+          backloads: 0,
+          surplusBookings: 0,
+          requisitions: 0,
+          callouts: 0,
+          logs: 0,
+          backups: 0,
+        },
+        message: err?.message || 'Database migration failed',
+      };
+    }
   };
 
   // Outbox & System Config
@@ -1414,38 +1795,38 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // Helper to persist single item to Firestore
   const saveItemToFirestore = (item: TubularItem) => {
     if (!isOffline && db) {
-      setDoc(doc(db, 'items', item.id), item).catch(err => console.error('Firestore saveItem err:', err));
+      setDoc(doc(db, 'items', item.id), safeClone(item)).catch(err => console.error('Firestore saveItem err:', err));
     }
   };
 
   const saveTransferToFirestore = (transfer: MaterialTransferTicket) => {
     if (!isOffline && db) {
-      setDoc(doc(db, 'transfers', transfer.id), transfer).catch(err => console.error('Firestore saveTransfer err:', err));
+      setDoc(doc(db, 'transfers', transfer.id), safeClone(transfer)).catch(err => console.error('Firestore saveTransfer err:', err));
     }
   };
 
   const saveUserToFirestore = (user: UserProfile) => {
     if (!isOffline && db) {
-      setDoc(doc(db, 'users', user.id), user).catch(err => console.error('Firestore saveUser err:', err));
+      setDoc(doc(db, 'users', user.id), safeClone(user)).catch(err => console.error('Firestore saveUser err:', err));
     }
   };
 
   const saveOutboxRecordToFirestore = (record: VerificationEmailRecord) => {
     if (!isOffline && db) {
-      setDoc(doc(db, 'email_outbox', record.id), record).catch(err => console.error('Firestore saveOutbox err:', err));
+      setDoc(doc(db, 'email_outbox', record.id), safeClone(record)).catch(err => console.error('Firestore saveOutbox err:', err));
     }
   };
 
   const saveConfigToFirestore = (config: SystemConfiguration) => {
     if (!isOffline && db) {
-      setDoc(doc(db, 'config', 'global_settings'), config).catch(err => console.error('Firestore saveConfig err:', err));
+      setDoc(doc(db, 'config', 'global_settings'), safeClone(config)).catch(err => console.error('Firestore saveConfig err:', err));
     }
   };
 
   // Role Switching
   const setCurrentUserRole = (role: UserRole) => {
-    if (role === 'System Administrator' && currentUser?.email?.toLowerCase() !== 'ammarthaqif.ar@gmail.com') {
-      alert('Access Restricted: System Administrator authority is strictly retained solely for master account ammarthaqif.ar@gmail.com.');
+    if (role === 'System Administrator' && currentUser?.role !== 'System Administrator') {
+      alert('Access Restricted: System Administrator authority is strictly restricted to designated administrative accounts.');
       return;
     }
     const match = allUsers.find(u => u.role === role);
@@ -1461,21 +1842,32 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Server API Email Credential Dispatcher
   const sendEmailCredentialsServer = async (userEmail: string): Promise<{ success: boolean; message: string }> => {
-    const targetUser = allUsers.find(u => u.email.toLowerCase() === userEmail.toLowerCase());
+    const emailTrim = userEmail.trim().toLowerCase();
+    const targetUser = allUsers.find(u => u.email.toLowerCase() === emailTrim);
     if (!targetUser) {
-      return { success: false, message: `User identity ${userEmail} not found in corporate directory.` };
+      return { 
+        success: false, 
+        message: `Email address '${emailTrim}' not found in the corporate directory. Please submit an Access Request for Administrator review.` 
+      };
+    }
+
+    if (targetUser.status === 'Suspended' || targetUser.status === 'Deactivated') {
+      return {
+        success: false,
+        message: `Account for ${emailTrim} is suspended or deactivated. Contact System Administrator.`
+      };
     }
 
     try {
+      const generatedToken = targetUser.verificationToken || Math.floor(100000 + Math.random() * 900000).toString();
       const response = await fetch('/api/send-credentials', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: safeJsonStringify({
           recipientEmail: targetUser.email,
           userName: targetUser.name,
           role: targetUser.role,
-          pinCode: '1234',
-          token: targetUser.verificationToken || `VERIFY-TOK-${Math.floor(100000 + Math.random() * 900000)}`,
+          token: generatedToken,
           corporateDomain: targetUser.corporateDomain || targetUser.email.split('@')[1]
         })
       });
@@ -1486,11 +1878,11 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           id: data.dispatchId || `email-${Date.now()}`,
           recipientEmail: targetUser.email,
           userName: targetUser.name,
-          corporateDomain: data.corporateDomain || targetUser.email.split('@')[1],
-          token: targetUser.verificationToken || 'PIN-1234',
+          corporateDomain: data.corporateDomain || targetUser.email.split('@')[1] || 'corp.com',
+          token: generatedToken,
           sentAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
           status: 'Delivered',
-          verificationLink: `${window.location.origin}/verify?token=${targetUser.verificationToken || 'PIN-1234'}`,
+          verificationLink: `${window.location.origin}/verify?token=${generatedToken}`,
         };
 
         setEmailOutbox(prev => [emailRecord, ...prev]);
@@ -1499,10 +1891,10 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         logAuditTrail(
           'USER_STATUS_UPDATED',
           targetUser.id,
-          `Dispatched corporate login credentials to ${targetUser.email} via Email Server Gateway API (Dispatch ID: ${data.dispatchId})`
+          `Dispatched corporate login credentials to ${targetUser.email} via Email Server Gateway API.`
         );
 
-        return { success: true, message: `Login credentials & security key successfully dispatched to ${targetUser.email} via Email Server API.` };
+        return { success: true, message: `Login credentials & security instructions successfully dispatched to ${targetUser.email}. Please check your corporate inbox.` };
       }
       return { success: false, message: data.error || 'Server API failed to dispatch email credentials.' };
     } catch (err: any) {
@@ -1512,10 +1904,22 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   // Dispatch Authorization Token for First-Time Access / Password Reset
-  const sendAuthTokenEmail = async (email: string): Promise<{ success: boolean; message: string; token?: string }> => {
-    const target = allUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
+  const sendAuthTokenEmail = async (email: string): Promise<{ success: boolean; message: string }> => {
+    const emailTrim = email.trim().toLowerCase();
+    const target = allUsers.find(u => u.email.toLowerCase() === emailTrim);
+
     if (!target) {
-      return { success: false, message: `No corporate user account found with email ${email}.` };
+      return { 
+        success: false, 
+        message: `Email address '${emailTrim}' is not recognized in the approved corporate user directory.` 
+      };
+    }
+
+    if (target.status === 'Suspended' || target.status === 'Deactivated') {
+      return {
+        success: false,
+        message: `Account for ${emailTrim} is suspended or access has been deactivated. Contact the System Administrator.`
+      };
     }
 
     const token = Math.floor(100000 + Math.random() * 900000).toString();
@@ -1532,7 +1936,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const response = await fetch('/api/send-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: safeJsonStringify({
           recipientEmail: target.email,
           token,
           purpose: 'FIRST_TIME_LOGIN_AND_PASSWORD_SETUP'
@@ -1557,19 +1961,30 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       logAuditTrail(
         'USER_PROFILE_UPDATED',
         target.id,
-        `Dispatched authorization verification token (${token}) to approved corporate email ${target.email}.`
+        `Dispatched authorization verification token to approved corporate email ${target.email}.`
       );
 
       return {
         success: true,
-        token,
-        message: `Authorization verification token successfully dispatched to ${target.email}.`
+        message: `Authorization verification token successfully dispatched to corporate inbox ${target.email}. Please check your email to retrieve your 6-digit verification code.`
       };
     } catch (err: any) {
+      const emailRecord: VerificationEmailRecord = {
+        id: `email-tok-${Date.now()}`,
+        recipientEmail: target.email,
+        userName: target.name,
+        corporateDomain: target.corporateDomain || target.email.split('@')[1] || 'corp.com',
+        token,
+        sentAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
+        status: 'Delivered',
+        verificationLink: `${window.location.origin}/verify?token=${token}`,
+      };
+      setEmailOutbox(prev => [emailRecord, ...prev]);
+      saveOutboxRecordToFirestore(emailRecord);
+
       return {
         success: true,
-        token,
-        message: `Authorization token generated (${token}) and sent to ${target.email}.`
+        message: `Authorization verification token dispatched to corporate inbox ${target.email}. Please check your email for the 6-digit code.`
       };
     }
   };
@@ -1582,9 +1997,9 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
 
     const cleanToken = token.trim();
-    if (target.verificationToken !== cleanToken && cleanToken !== '1234') {
+    if (target.verificationToken !== cleanToken) {
       const outboxMatch = emailOutbox.find(e => e.recipientEmail.toLowerCase() === email.toLowerCase() && e.token === cleanToken);
-      if (!outboxMatch && cleanToken !== '1234') {
+      if (!outboxMatch) {
         return { success: false, message: 'Invalid or expired authorization token.' };
       }
     }
@@ -1593,14 +2008,16 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       return { success: false, message: 'New password must be at least 4 characters long.' };
     }
 
+    const newHash = hashPassword(newPassword);
     const updatedUser: UserProfile = {
       ...target,
-      password: newPassword,
-      passwordHash: btoa(newPassword),
+      passwordHash: newHash,
       status: 'Active Approved',
       isCorporateVerified: true,
+      isFirstLogin: false,
       verificationToken: undefined,
     };
+    delete (updatedUser as any).password;
 
     setAllUsers(prev => prev.map(u => u.id === target.id ? updatedUser : u));
     saveUserToFirestore(updatedUser);
@@ -1612,7 +2029,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     logAuditTrail(
       'USER_PROFILE_UPDATED',
       target.id,
-      `User ${target.email} successfully set/updated custom password via authorization token verification.`
+      `User ${target.email} successfully set custom password via authorization token verification.`
     );
 
     return { success: true, message: `Password successfully updated for ${target.email}. You may now log in with your new password.` };
@@ -1621,10 +2038,28 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // Update Password for Currently Logged In User
   const updateCurrentUserPassword = (currentPassword: string, newPassword: string): { success: boolean; message: string } => {
     if (!currentUser) return { success: false, message: 'No active user session found.' };
-    if (currentUser.password && currentUser.password !== currentPassword && currentPassword !== '1234') {
+    if (currentUser.passwordHash && !verifyPassword(currentPassword, currentUser.passwordHash)) {
       return { success: false, message: 'Current password incorrect.' };
     }
-    return resetPasswordWithToken(currentUser.email, '1234', newPassword);
+    const newHash = hashPassword(newPassword);
+    const updatedUser: UserProfile = {
+      ...currentUser,
+      passwordHash: newHash,
+      isFirstLogin: false,
+    };
+    delete (updatedUser as any).password;
+
+    setAllUsers(prev => prev.map(u => u.id === currentUser.id ? updatedUser : u));
+    setCurrentUser(updatedUser);
+    saveUserToFirestore(updatedUser);
+
+    logAuditTrail(
+      'USER_PROFILE_UPDATED',
+      currentUser.id,
+      `Current user ${currentUser.email} updated account password.`
+    );
+
+    return { success: true, message: 'Password successfully updated.' };
   };
 
   // Microsoft Authenticator 2FA Helpers
@@ -1676,32 +2111,34 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       };
     }
 
-    const existingUser = allUsers.find(u => u.email.toLowerCase() === newUser.email.toLowerCase());
+    const emailTrim = newUser.email.trim().toLowerCase();
+    const existingUser = allUsers.find(u => u.email.toLowerCase() === emailTrim);
     if (existingUser) {
-      return { success: false, message: `An account with email ${newUser.email} already exists.` };
+      return { success: false, message: `An account with email ${emailTrim} already exists in the corporate directory.` };
     }
 
     // Enforce System Administrator sole account restriction
     let assignedRole = newUser.role;
-    if (assignedRole === 'System Administrator' && newUser.email.toLowerCase() !== 'ammarthaqif.ar@gmail.com') {
+    if (assignedRole === 'System Administrator' && (!currentUser || currentUser.role !== 'System Administrator')) {
       assignedRole = 'Drilling Engineer';
     }
 
     const userId = `usr-${Date.now()}`;
-    const token = `VERIFY-TOK-${Math.floor(100000 + Math.random() * 900000)}`;
+    const token = Math.floor(100000 + Math.random() * 900000).toString();
 
-    const initialStatus = newUser.initialStatus || 'Pending Email Verification';
+    // Account requests from the login page default to 'Pending Admin Approval' for Administrator review
+    const initialStatus: UserAccountStatus = newUser.initialStatus || 'Pending Admin Approval';
     const isApproved = initialStatus === 'Active Approved';
 
     const userRecord: UserProfile = {
       id: userId,
       name: newUser.name,
-      email: newUser.email,
+      email: emailTrim,
       role: assignedRole,
       department: newUser.department,
       location: newUser.location,
       status: initialStatus,
-      verificationToken: isApproved ? undefined : token,
+      verificationToken: isApproved ? token : undefined,
       verificationSentAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
       registeredAt: new Date().toISOString().split('T')[0],
       isCorporateVerified: isApproved,
@@ -1715,25 +2152,147 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     logAuditTrail(
       'USER_REGISTERED',
       userId,
-      `Registered user account ${newUser.name} (${newUser.email}) with role '${assignedRole}' at '${newUser.location}'.`,
+      `Access request submitted for ${newUser.name} (${emailTrim}) with role '${assignedRole}' at '${newUser.location}'.`,
       `Initial Status: ${initialStatus}`
     );
 
-    // Auto-dispatch via Email Server Gateway
-    sendEmailCredentialsServer(newUser.email).catch(() => {});
+    // Save dispatch audit record
+    const emailRecord: VerificationEmailRecord = {
+      id: `email-reg-${Date.now()}`,
+      recipientEmail: emailTrim,
+      userName: newUser.name,
+      corporateDomain: domain,
+      token,
+      sentAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      status: isApproved ? 'Delivered' : 'Sent',
+      verificationLink: `${window.location.origin}/verify?token=${token}`,
+    };
+    setEmailOutbox(prev => [emailRecord, ...prev]);
+    saveOutboxRecordToFirestore(emailRecord);
+
+    if (isApproved) {
+      sendEmailCredentialsServer(emailTrim).catch(() => {});
+      return { 
+        success: true, 
+        message: `Account created and approved! Credentials dispatched to ${emailTrim}.`, 
+        user: userRecord 
+      };
+    }
 
     return { 
       success: true, 
-      message: isApproved 
-        ? `Corporate user registered & credentials dispatched to ${newUser.email}.`
-        : `Registration initiated. Validation credentials dispatched to ${newUser.email}.`, 
+      message: `Access request submitted for ${emailTrim}. Your account request is under Administrator review. Once approved by the System Administrator, your account credentials will be issued.`, 
       user: userRecord 
     };
   };
 
+  // Bulk Import Approved Users from Excel / CSV & Auto-Generate 6-Digit Tokens
+  const bulkImportApprovedUsers = (
+    usersList: { name: string; email: string; role?: UserRole; department?: string; location?: LocationType }[]
+  ): {
+    success: boolean;
+    count: number;
+    importedUsers: { email: string; name: string; token: string; role: string }[];
+    errors: string[];
+  } => {
+    const importedUsers: { email: string; name: string; token: string; role: string }[] = [];
+    const errors: string[] = [];
+    let count = 0;
+
+    const newUsers: UserProfile[] = [];
+    const newOutbox: VerificationEmailRecord[] = [];
+
+    usersList.forEach(u => {
+      const emailTrim = u.email.trim().toLowerCase();
+      const domain = emailTrim.split('@')[1];
+      if (!emailTrim || !domain) {
+        errors.push(`Invalid email format: ${u.email}`);
+        return;
+      }
+
+      const existingIndex = allUsers.findIndex(usr => usr.email.toLowerCase() === emailTrim);
+      const token = Math.floor(100000 + Math.random() * 900000).toString();
+      const role = u.role || 'Drilling Engineer';
+      const department = u.department || 'Drilling Operations';
+      const location = u.location || 'Main Supply Base Yard';
+
+      const userRecord: UserProfile = {
+        id: existingIndex >= 0 ? allUsers[existingIndex].id : `usr-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        name: u.name.trim(),
+        email: emailTrim,
+        role,
+        department,
+        location,
+        status: 'Active Approved',
+        isCorporateVerified: true,
+        isFirstLogin: true,
+        verificationToken: token,
+        verificationSentAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
+        registeredAt: new Date().toISOString().split('T')[0],
+        corporateDomain: domain,
+        approvedBy: currentUser?.name || 'System Administrator',
+      };
+
+      newUsers.push(userRecord);
+      saveUserToFirestore(userRecord);
+
+      const emailRecord: VerificationEmailRecord = {
+        id: `email-import-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        recipientEmail: emailTrim,
+        userName: u.name,
+        corporateDomain: domain,
+        token,
+        sentAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
+        status: 'Delivered',
+        verificationLink: `${window.location.origin}/verify?token=${token}`,
+      };
+      newOutbox.push(emailRecord);
+      saveOutboxRecordToFirestore(emailRecord);
+
+      importedUsers.push({
+        email: emailTrim,
+        name: u.name,
+        token,
+        role,
+      });
+
+      count++;
+    });
+
+    if (newUsers.length > 0) {
+      setAllUsers(prev => {
+        const updated = [...prev];
+        newUsers.forEach(nu => {
+          const idx = updated.findIndex(u => u.email.toLowerCase() === nu.email.toLowerCase());
+          if (idx >= 0) {
+            updated[idx] = nu;
+          } else {
+            updated.push(nu);
+          }
+        });
+        return updated;
+      });
+
+      setEmailOutbox(prev => [...newOutbox, ...prev]);
+
+      logAuditTrail(
+        'USER_REGISTERED',
+        currentUser?.id || 'admin',
+        `Bulk imported ${count} approved corporate users from Excel spreadsheet. Generated 6-digit authorization tokens.`
+      );
+    }
+
+    return {
+      success: count > 0,
+      count,
+      importedUsers,
+      errors,
+    };
+  };
+
   const provisionSystemAdminAccount = (): { success: boolean; message: string; user: UserProfile } => {
-    const adminEmail = 'ammarthaqif.ar@gmail.com';
-    const existingAdmin = allUsers.find(u => u.email.toLowerCase() === adminEmail);
+    const adminEmail = 'admin@apexdrilling.com';
+    const existingAdmin = allUsers.find(u => u.email.toLowerCase() === adminEmail || u.role === 'System Administrator');
 
     if (existingAdmin) {
       const updatedUser: UserProfile = {
@@ -1745,7 +2304,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
       // Strip System Administrator role from any other account
       const updatedList = allUsers.map(u => {
-        if (u.email.toLowerCase() === adminEmail) return updatedUser;
+        if (u.id === existingAdmin.id) return updatedUser;
         if (u.role === 'System Administrator') return { ...u, role: 'Drilling Engineer' as UserRole };
         return u;
       });
@@ -1756,14 +2315,14 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
       return { 
         success: true, 
-        message: 'Master System Administrator account (ammarthaqif.ar@gmail.com) activated and verified.', 
+        message: 'Corporate System Administrator account activated and verified.', 
         user: updatedUser 
       };
     }
 
     const adminUser: UserProfile = {
       id: 'usr-main-admin',
-      name: 'Ammar Thaqif (Main Admin)',
+      name: 'Corporate System Admin',
       role: 'System Administrator',
       department: 'Corporate IT & Admin Controls',
       location: 'Main Supply Base Yard',
@@ -1781,13 +2340,13 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     logAuditTrail(
       'SYSTEM_CONFIG_UPDATED',
       adminUser.id,
-      'Provisioned master System Administrator account exclusively for ammarthaqif.ar@gmail.com.',
-      'Sole Master Admin Authority Enforced'
+      'Provisioned corporate System Administrator account.',
+      'Administrator Authority Enforced'
     );
 
     return { 
       success: true, 
-      message: 'Master System Administrator account successfully created and provisioned for ammarthaqif.ar@gmail.com.', 
+      message: 'Corporate System Administrator account successfully created and provisioned.', 
       user: adminUser 
     };
   };
@@ -1821,8 +2380,8 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const target = allUsers.find(u => u.id === userId);
     if (!target) return;
 
-    if (role === 'System Administrator' && target.email.toLowerCase() !== 'ammarthaqif.ar@gmail.com') {
-      logAuditTrail('SYSTEM_CONFIG_UPDATED', userId, `Blocked attempt to set System Administrator role for ${target.email}`);
+    if (role === 'System Administrator' && (!currentUser || currentUser.role !== 'System Administrator')) {
+      logAuditTrail('SYSTEM_CONFIG_UPDATED', userId, `Blocked unauthorized attempt to set System Administrator role for ${target.email}`);
       return;
     }
 
@@ -1850,10 +2409,10 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
 
     const emailCheck = (updates.email || target.email).toLowerCase();
-    if (updates.role === 'System Administrator' && emailCheck !== 'ammarthaqif.ar@gmail.com') {
+    if (updates.role === 'System Administrator' && (!currentUser || currentUser.role !== 'System Administrator')) {
       return { 
         success: false, 
-        message: 'Access Restricted: System Administrator authority is strictly retained solely for master account ammarthaqif.ar@gmail.com.' 
+        message: 'Access Restricted: System Administrator authority can only be assigned by an existing Administrator.' 
       };
     }
 
@@ -2359,10 +2918,36 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const deleteItem = (id: string) => {
+    const itemToDelete = items.find(i => i.id === id);
     setItems(prev => prev.filter(item => item.id !== id));
     if (!isOffline && db) {
       deleteDoc(doc(db, 'items', id)).catch(err => console.error('Firestore deleteItem err:', err));
     }
+    if (itemToDelete) {
+      logAuditTrail(
+        'ITEM_DELETED',
+        itemToDelete.tagNumber || id,
+        `Permanently removed tubular item "${itemToDelete.name}" (${itemToDelete.tagNumber}, S/N: ${itemToDelete.serialNumber}) from OCTG database.`,
+        `Deleted by ${currentUser?.name || 'Materials Management'}`
+      );
+    }
+  };
+
+  const bulkDeleteItems = (ids: string[]) => {
+    if (!ids || ids.length === 0) return;
+    const count = ids.length;
+    setItems(prev => prev.filter(item => !ids.includes(item.id)));
+    if (!isOffline && db) {
+      ids.forEach(id => {
+        deleteDoc(doc(db, 'items', id)).catch(err => console.error('Firestore bulkDelete err:', err));
+      });
+    }
+    logAuditTrail(
+      'ITEM_DELETED',
+      `BULK_DELETE_${count}_ITEMS`,
+      `Bulk deleted ${count} tubular/tool items from OCTG master database.`,
+      `Deleted by ${currentUser?.name || 'Materials Management'}`
+    );
   };
 
   const addInspectionRecord = (itemId: string, record: Omit<InspectionRecord, 'id'>) => {
@@ -2883,8 +3468,15 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       declineConcurrentLoginRequest,
       loginUser,
       logoutUser,
+      loginWithMicrosoftAccount,
+      registerWithMicrosoft,
+      migrateDatabaseToDedicatedFirestore,
+      testDedicatedFirestoreConnection,
+      dedicatedDatabaseId,
+      isMigratingToDedicatedDb,
       setCurrentUserRole,
       registerUser,
+      bulkImportApprovedUsers,
       provisionSystemAdminAccount,
       updateUserStatus,
       updateUserRole,
@@ -2948,6 +3540,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       bulkUpdateStatus,
       transferOwnership,
       deleteItem,
+      bulkDeleteItems,
       addInspectionRecord,
       addMaintenanceLog,
       transfers,

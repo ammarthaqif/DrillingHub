@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useDrilling } from '../context/DrillingContext';
 import { UserRole, UserAccountStatus, UserProfile, LocationType } from '../types/drilling';
 import { DropdownCategoryKey } from '../db/embeddedDb';
+import { ApprovedUsersUploadModal } from './ApprovedUsersUploadModal';
 import { 
   Users, 
   ShieldCheck, 
@@ -65,6 +66,10 @@ export const AdminPanel: React.FC = () => {
     removeCorporateDomain,
     exportDatabaseSnapshot,
     resetDatabaseToInitial,
+    migrateDatabaseToDedicatedFirestore,
+    testDedicatedFirestoreConnection,
+    dedicatedDatabaseId,
+    isMigratingToDedicatedDb,
     availableRoles,
     availableDepartments,
     availableLocations,
@@ -89,6 +94,9 @@ export const AdminPanel: React.FC = () => {
   const [newOptionText, setNewOptionText] = useState('');
   const [dropdownMsg, setDropdownMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   
+  // Upload Excel Approved Users Modal State
+  const [showUploadModal, setShowUploadModal] = useState(false);
+
   // Registration Form State
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const [regName, setRegName] = useState('');
@@ -115,6 +123,11 @@ export const AdminPanel: React.FC = () => {
   const [deletingUser, setDeletingUser] = useState<UserProfile | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteSuccess, setDeleteSuccess] = useState<string | null>(null);
+
+  // Dedicated Firebase Database Migration State
+  const [migrationOutput, setMigrationOutput] = useState<{ success: boolean; message: string; details?: any } | null>(null);
+  const [isTestingDb, setIsTestingDb] = useState(false);
+  const [dbTestResult, setDbTestResult] = useState<{ success: boolean; message: string; latencyMs?: number } | null>(null);
 
   // Open Edit User Modal
   const handleOpenEditUser = (user: UserProfile) => {
@@ -428,14 +441,21 @@ export const AdminPanel: React.FC = () => {
               ))}
             </div>
 
-            <div className="w-full sm:w-64">
+            <div className="flex items-center space-x-2 w-full sm:w-auto">
               <input
                 type="text"
                 placeholder="Search user name or email..."
                 value={searchUserQuery}
                 onChange={e => setSearchUserQuery(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-500"
+                className="w-full sm:w-64 bg-white/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-500"
               />
+              <button
+                onClick={() => setShowUploadModal(true)}
+                className="px-4 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-xs rounded-xl transition flex items-center space-x-1.5 whitespace-nowrap shadow-lg shadow-emerald-500/20"
+              >
+                <Upload className="w-4 h-4" />
+                <span>Upload Approved Users (Excel)</span>
+              </button>
             </div>
           </div>
 
@@ -1114,58 +1134,189 @@ export const AdminPanel: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 4: EMBEDDED REAL-TIME DB ENGINE */}
+      {/* TAB 4: DEDICATED FIREBASE DATABASE & EMBEDDED PERSISTENCE */}
       {activeTab === 'database' && (
-        <div className="bg-[#111114] border border-white/10 rounded-2xl p-6 space-y-6">
-          <div className="border-b border-white/10 pb-4 flex items-center justify-between">
-            <div>
-              <h3 className="font-bold text-white text-base flex items-center space-x-2">
-                <Database className="w-5 h-5 text-emerald-400" />
-                <span>Embedded Real-Time Database Engine Status</span>
-              </h3>
-              <p className="text-xs text-gray-400 mt-0.5">
-                Zero-config IndexedDB + LocalStorage persistence layer with real-time BroadcastChannel multi-tab pub/sub
-              </p>
-            </div>
-            <span className="px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-xs font-mono font-bold flex items-center space-x-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-              <span>Real-Time Engine Active</span>
-            </span>
-          </div>
+        <div className="space-y-6">
+          
+          {/* Dedicated Firebase Cloud Firestore Card */}
+          <div className="bg-[#111114] border border-white/10 rounded-2xl p-6 space-y-6 shadow-xl">
+            <div className="border-b border-white/10 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center space-x-2">
+                  <Database className="w-5 h-5 text-amber-400" />
+                  <h3 className="font-bold text-white text-base">Dedicated Firebase Firestore Database</h3>
+                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-mono font-bold">
+                    Target Instance Active
+                  </span>
+                </div>
+                <p className="text-xs text-gray-400 mt-1">
+                  Enterprise-grade cloud persistence with strict Zero-Trust RBAC security rules and confidential access enforcement.
+                </p>
+              </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-            <div className="bg-white/5 border border-white/5 p-4 rounded-xl space-y-2">
-              <p className="font-semibold text-gray-400">IndexedDB Object Store</p>
-              <p className="text-xl font-bold text-white">DrillSpec_Embedded_Realtime_DB v1</p>
-              <p className="text-emerald-400 text-[11px] font-mono">Status: Connected & Synchronized</p>
-            </div>
-
-            <div className="bg-white/5 border border-white/5 p-4 rounded-xl space-y-2">
-              <p className="font-semibold text-gray-400">BroadcastChannel Pub/Sub</p>
-              <p className="text-xl font-bold text-amber-400">drillspec_realtime_channel</p>
-              <p className="text-gray-400 text-[11px]">Real-time tab synchronization ready</p>
-            </div>
-
-            <div className="bg-white/5 border border-white/5 p-4 rounded-xl space-y-2">
-              <p className="font-semibold text-gray-400">Export / Import Backup</p>
-              <div className="flex items-center space-x-2 pt-1">
+              <div className="flex items-center space-x-2 shrink-0">
                 <button
-                  onClick={exportDatabaseSnapshot}
-                  className="px-3 py-1.5 rounded-lg bg-emerald-500 text-black font-bold text-[11px] hover:bg-emerald-400 transition flex items-center space-x-1"
+                  type="button"
+                  onClick={async () => {
+                    setIsTestingDb(true);
+                    setDbTestResult(null);
+                    const res = await testDedicatedFirestoreConnection();
+                    setIsTestingDb(false);
+                    setDbTestResult({
+                      success: res.connected,
+                      message: res.message,
+                      latencyMs: res.latencyMs
+                    });
+                  }}
+                  disabled={isTestingDb}
+                  className="px-3.5 py-2 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-gray-200 text-xs font-semibold transition flex items-center space-x-1.5"
                 >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Export JSON</span>
+                  <RefreshCw className={`w-3.5 h-3.5 text-cyan-400 ${isTestingDb ? 'animate-spin' : ''}`} />
+                  <span>Test Connection</span>
                 </button>
 
                 <button
-                  onClick={resetDatabaseToInitial}
-                  className="px-3 py-1.5 rounded-lg bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/30 font-bold text-[11px] transition"
+                  type="button"
+                  onClick={async () => {
+                    if (window.confirm('Execute complete database migration to dedicated Firestore instance? All current tubular inventory, campaigns, transfers, and user credentials will be synchronized.')) {
+                      setMigrationOutput(null);
+                      const res = await migrateDatabaseToDedicatedFirestore();
+                      setMigrationOutput(res);
+                    }
+                  }}
+                  disabled={isMigratingToDedicatedDb}
+                  className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-xs transition flex items-center space-x-1.5 shadow-lg shadow-amber-500/20"
                 >
-                  Reset DB
+                  {isMigratingToDedicatedDb ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Upload className="w-3.5 h-3.5" />
+                  )}
+                  <span>{isMigratingToDedicatedDb ? 'Migrating Database...' : 'Migrate to Dedicated Firestore'}</span>
                 </button>
               </div>
             </div>
+
+            {/* Test Connection / Migration Feedback Alerts */}
+            {dbTestResult && (
+              <div className={`p-4 rounded-xl text-xs flex items-start space-x-3 border ${
+                dbTestResult.success 
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' 
+                  : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+              }`}>
+                {dbTestResult.success ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                )}
+                <div>
+                  <strong className="font-bold">Dedicated Firestore Diagnostic:</strong> {dbTestResult.message}
+                  {dbTestResult.latencyMs && (
+                    <span className="ml-2 font-mono text-[11px] text-emerald-400">({dbTestResult.latencyMs}ms response latency)</span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {migrationOutput && (
+              <div className={`p-4 rounded-xl text-xs flex items-start space-x-3 border ${
+                migrationOutput.success 
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' 
+                  : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+              }`}>
+                {migrationOutput.success ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                )}
+                <div className="space-y-1">
+                  <p><strong className="font-bold">Migration Outcome:</strong> {migrationOutput.message}</p>
+                  {migrationOutput.details && (
+                    <p className="text-[11px] font-mono text-gray-300">
+                      Synchronized: {migrationOutput.details.items} items, {migrationOutput.details.users} users, {migrationOutput.details.transfers} transfers, {migrationOutput.details.campaigns} campaigns.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Database Instance Parameters Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+              <div className="bg-white/5 border border-white/5 p-4 rounded-xl space-y-1.5">
+                <span className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Database Target Identifier</span>
+                <p className="font-mono text-xs text-amber-400 font-bold break-all">{dedicatedDatabaseId}</p>
+                <span className="inline-block px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 text-[10px]">
+                  Dedicated Applet Instance
+                </span>
+              </div>
+
+              <div className="bg-white/5 border border-white/5 p-4 rounded-xl space-y-1.5">
+                <span className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Security & Access Protocol</span>
+                <p className="font-bold text-white text-xs">Zero-Trust Microsoft OAuth + RBAC</p>
+                <p className="text-[11px] text-gray-400">Strict domain whitelisting & encrypted TLS in-flight/at-rest</p>
+              </div>
+
+              <div className="bg-white/5 border border-white/5 p-4 rounded-xl space-y-1.5">
+                <span className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Audit Trail Governance</span>
+                <p className="font-bold text-emerald-400 text-xs">Immutable Action Logs</p>
+                <p className="text-[11px] text-gray-400">Append-only audit ledger with user ID & timestamp verification</p>
+              </div>
+            </div>
           </div>
+
+          {/* Embedded Local Storage & Backup Tools */}
+          <div className="bg-[#111114] border border-white/10 rounded-2xl p-6 space-y-6">
+            <div className="border-b border-white/10 pb-4 flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-white text-base flex items-center space-x-2">
+                  <Database className="w-5 h-5 text-emerald-400" />
+                  <span>Embedded Local DB Engine & Offline Sync</span>
+                </h3>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  IndexedDB + LocalStorage offline-first cache with real-time BroadcastChannel multi-tab pub/sub
+                </p>
+              </div>
+              <span className="px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-xs font-mono font-bold flex items-center space-x-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                <span>Local Cache Synced</span>
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+              <div className="bg-white/5 border border-white/5 p-4 rounded-xl space-y-2">
+                <p className="font-semibold text-gray-400">IndexedDB Object Store</p>
+                <p className="text-xl font-bold text-white">DrillSpec_Embedded_Realtime_DB v1</p>
+                <p className="text-emerald-400 text-[11px] font-mono">Status: Connected & Synchronized</p>
+              </div>
+
+              <div className="bg-white/5 border border-white/5 p-4 rounded-xl space-y-2">
+                <p className="font-semibold text-gray-400">BroadcastChannel Pub/Sub</p>
+                <p className="text-xl font-bold text-amber-400">drillspec_realtime_channel</p>
+                <p className="text-gray-400 text-[11px]">Real-time tab synchronization ready</p>
+              </div>
+
+              <div className="bg-white/5 border border-white/5 p-4 rounded-xl space-y-2">
+                <p className="font-semibold text-gray-400">Export / Import Backup</p>
+                <div className="flex items-center space-x-2 pt-1">
+                  <button
+                    onClick={exportDatabaseSnapshot}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-500 text-black font-bold text-[11px] hover:bg-emerald-400 transition flex items-center space-x-1"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Export JSON</span>
+                  </button>
+
+                  <button
+                    onClick={resetDatabaseToInitial}
+                    className="px-3 py-1.5 rounded-lg bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/30 font-bold text-[11px] transition"
+                  >
+                    Reset DB
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
         </div>
       )}
 
@@ -1219,6 +1370,7 @@ export const AdminPanel: React.FC = () => {
                 desc: string;
               }> = [
                 { key: 'dashboard', name: 'Executive Dashboard', category: 'General', desc: 'Campaign KPIs, inventory distribution, critical alerts' },
+                { key: 'materialsManagement', name: 'Materials Management Hub', category: 'Logistics', desc: 'Full OCTG database CRUD, Excel/CSV bulk import/export, yard racks & batch actions' },
                 { key: 'inventory', name: 'Tubulars & Tools Inventory', category: 'General', desc: 'Serial-tracked master inventory table and details' },
                 { key: 'drillingEngineer', name: 'Drilling Engineer Hub', category: 'Engineering', desc: 'Design tally creation, API Spec safety factor checks' },
                 { key: 'supplyBaseMatco', name: 'Supply Base Matco', category: 'Logistics', desc: 'Yard management, PO compliance verification' },
@@ -1668,6 +1820,12 @@ export const AdminPanel: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Excel Bulk Upload Modal */}
+      <ApprovedUsersUploadModal
+        isOpen={showUploadModal}
+        onClose={() => setShowUploadModal(false)}
+      />
 
     </div>
   );

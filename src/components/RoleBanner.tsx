@@ -12,7 +12,7 @@ export const RoleBanner: React.FC = () => {
       case 'Logistics Coordinator':
         return 'Material Transfer Ticket Creation, Dispatch Validation, Carrier Assignment';
       case 'Materials Coordinator (Supply Base)':
-        return 'Base Yard Storage, Receiving Backloads, Inspection Scheduling, Stock-take';
+        return 'Full OCTG Database CRUD, Excel/CSV Bulk Import & Export, Yard Storage & Batch Relocation';
       case 'Rig Toolpusher / Materials Specialist':
         return 'Rig Site Receipt Verification, Discrepancy Logging, Run-in-hole Tallying';
       case 'QA/QC Inspector':

@@ -3,11 +3,11 @@ import { TubularItem, MaterialTransferTicket, UserProfile, SurplusBookingRequest
 export const INITIAL_USERS: UserProfile[] = [
   {
     id: 'usr-main-admin',
-    name: 'Ammar Thaqif (Main Admin)',
+    name: 'Corporate System Admin',
     role: 'System Administrator',
     department: 'Corporate IT & Admin Controls',
     location: 'Main Supply Base Yard',
-    email: 'ammarthaqif.ar@gmail.com',
+    email: 'admin@apexdrilling.com',
     status: 'Active Approved',
     isCorporateVerified: true,
   },
@@ -1027,7 +1027,7 @@ export const INITIAL_AUDIT_LOGS: AuditTrailLog[] = [
     timestamp: '2026-08-01T10:00:00.000Z',
     formattedTimestamp: '2026-08-01 10:00:00 UTC',
     userId: 'usr-main-admin',
-    userName: 'Ammar Thaqif (Main Admin)',
+    userName: 'Corporate System Admin',
     userRole: 'System Administrator',
     location: 'Main Supply Base Yard',
     actionType: 'USER_REGISTERED',

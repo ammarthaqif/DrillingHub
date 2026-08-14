@@ -109,10 +109,34 @@ async function startServer() {
       const { items, holeSection } = req.body;
       const ai = getAiClient();
 
+      let itemsJsonStr = '[]';
+      try {
+        const seen = new WeakSet();
+        function cleanServerVal(val: any, depth = 0): any {
+          if (depth > 20 || val === null || val === undefined) return val;
+          if (typeof val !== 'object') return val;
+          if (seen.has(val)) return undefined;
+          seen.add(val);
+          if (Array.isArray(val)) return val.map(item => cleanServerVal(item, depth + 1));
+          const res: Record<string, any> = {};
+          for (const key of Object.keys(val)) {
+            try {
+              res[key] = cleanServerVal(val[key], depth + 1);
+            } catch {
+              // Ignore throwing property getters
+            }
+          }
+          return res;
+        }
+        itemsJsonStr = JSON.stringify(cleanServerVal(items || []), null, 2);
+      } catch {
+        itemsJsonStr = '[]';
+      }
+
       const prompt = `You are a Senior Principal Drilling & Tubulars Engineer analyzing a drilling campaign inventory.
 Review the following inventory items for hole section target: "${holeSection || 'All Hole Sections'}":
 
-${JSON.stringify(items, null, 2)}
+${itemsJsonStr}
 
 Provide a concise, professional engineering assessment with:
 1. Overall Campaign Readiness Score (0 to 100%).

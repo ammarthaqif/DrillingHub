@@ -16,6 +16,7 @@ import { AiAuditModal } from './components/AiAuditModal';
 import { AuditReportView } from './components/AuditReportView';
 import { AdminPanel } from './components/AdminPanel';
 import { DrillingEngineerHub } from './components/DrillingEngineerHub';
+import { MaterialsManagementHub } from './components/MaterialsManagementHub';
 import { SupplyBaseHub } from './components/SupplyBaseHub';
 import { RigSiteHub } from './components/RigSiteHub';
 import { CheckAndBalanceHub } from './components/CheckAndBalanceHub';
@@ -42,7 +43,8 @@ import {
   Calculator,
   Building2,
   Anchor,
-  Scale
+  Scale,
+  Package
 } from 'lucide-react';
 
 const MainAppContent: React.FC = () => {
@@ -62,20 +64,21 @@ const MainAppContent: React.FC = () => {
   const userRole = currentUser?.role || 'Drilling Engineer';
 
   const [activeNav, setActiveNav] = useState<
-    'dashboard' | 'inventory' | 'drillingEngineer' | 'supplyBaseMatco' | 'rigSiteMatco' | 'checkAndBalance' | 'holeSection' | 'surplus' | 'movement' | 'audit' | 'admin'
+    'dashboard' | 'materialsManagement' | 'inventory' | 'drillingEngineer' | 'supplyBaseMatco' | 'rigSiteMatco' | 'checkAndBalance' | 'holeSection' | 'surplus' | 'movement' | 'audit' | 'admin'
   >('dashboard');
 
   const pendingApprovalsCount = allUsers.filter(u => u.status === 'Pending Email Verification' || u.status === 'Pending Admin Approval').length;
 
   // Module Navigation Definitions
   const navTabs: Array<{
-    key: 'dashboard' | 'inventory' | 'drillingEngineer' | 'supplyBaseMatco' | 'rigSiteMatco' | 'checkAndBalance' | 'holeSection' | 'surplus' | 'movement' | 'audit' | 'admin';
+    key: 'dashboard' | 'materialsManagement' | 'inventory' | 'drillingEngineer' | 'supplyBaseMatco' | 'rigSiteMatco' | 'checkAndBalance' | 'holeSection' | 'surplus' | 'movement' | 'audit' | 'admin';
     label: string;
     icon: React.ReactNode;
     badge?: number;
   }> = [
     { key: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
-    { key: 'inventory', label: 'Tubulars & Tools', icon: <HardHat className="w-4 h-4" />, badge: items.length },
+    { key: 'materialsManagement', label: 'Materials Management', icon: <Package className="w-4 h-4 text-emerald-400" />, badge: items.length },
+    { key: 'inventory', label: 'Tubulars & Tools', icon: <HardHat className="w-4 h-4" /> },
     { key: 'drillingEngineer', label: 'Drilling Engineer Hub', icon: <Calculator className="w-4 h-4 text-amber-400" /> },
     { key: 'supplyBaseMatco', label: 'Supply Base Matco', icon: <Building2 className="w-4 h-4 text-emerald-400" /> },
     { key: 'rigSiteMatco', label: 'Rig Site Matco', icon: <Anchor className="w-4 h-4 text-cyan-400" /> },
@@ -212,6 +215,20 @@ const MainAppContent: React.FC = () => {
             onNavigateTab={(tab) => setActiveNav(tab as any)}
             onOpenAiAudit={() => setIsAiAuditModalOpen(true)}
             onOpenAlerts={() => setIsAlertsModalOpen(true)}
+          />
+        )}
+
+        {activeNav === 'materialsManagement' && (
+          <MaterialsManagementHub
+            onSelectItem={(item) => setSelectedItemForDrawer(item)}
+            onOpenAddItem={() => {
+              setSelectedItemForEdit(null);
+              setIsAddModalOpen(true);
+            }}
+            onOpenEditItem={(item) => {
+              setSelectedItemForEdit(item);
+              setIsAddModalOpen(true);
+            }}
           />
         )}
 

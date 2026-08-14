@@ -77,6 +77,10 @@ export interface UserProfile {
   isCorporateVerified?: boolean;
   corporateDomain?: string;
   permissions?: string[];
+  isMicrosoftAuthenticated?: boolean;
+  msAuthUid?: string;
+  msTenantId?: string;
+  lastMicrosoftLoginAt?: string;
 }
 
 export interface ActiveSessionData {
@@ -251,6 +255,7 @@ export interface TubularItem {
   photos?: ItemPhotoRecord[];
 
   // Purchase, ERP & Tracking Identifiers
+  purchaseCostUsd?: number; // Estimated asset valuation in USD
   cocNumber?: string; // Certificate of Conformance
   poNumber?: string; // Purchase Order #
   poApproved?: boolean; // Approved PO flag for vendor service delivery
@@ -519,12 +524,15 @@ export interface AuditTrailLog {
   userRole: UserRole;
   location: LocationType;
   actionType: 
+    | 'USER_LOGGED_IN'
     | 'CREATE_BACKLOAD_MANIFEST'
     | 'VESSEL_ARRIVAL_CONFIRMED'
     | 'DISPOSITION_SENT_FOR_INSPECTION'
     | 'DISPOSITION_SENT_FOR_DISPOSAL'
     | 'ITEM_CREATED'
     | 'ITEM_UPDATED'
+    | 'ITEM_DELETED'
+    | 'AUDIT_REPORT_GENERATED'
     | 'OWNERSHIP_TRANSFERRED'
     | 'MATERIAL_TRANSFER_DISPATCHED'
     | 'MATERIAL_TRANSFER_RECEIVED'
