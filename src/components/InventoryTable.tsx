@@ -3,6 +3,8 @@ import { useDrilling } from '../context/DrillingContext';
 import { TubularItem, HoleSection, LocationType, MaintenanceStatus } from '../types/drilling';
 import { ExcelUploadModal } from './ExcelUploadModal';
 import { InventoryPhotoModal } from './InventoryPhotoModal';
+import { AssetLabelModal } from './AssetLabelModal';
+import { BulkActionModal } from './BulkActionModal';
 import { 
   Search, 
   Filter, 
@@ -27,6 +29,8 @@ import {
   History,
   Camera,
   Lock,
+  QrCode,
+  Printer,
   X
 } from 'lucide-react';
 
@@ -94,7 +98,11 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
 
   const [isExcelModalOpen, setIsExcelModalOpen] = useState(false);
   const [isBulkStatusModalOpen, setIsBulkStatusModalOpen] = useState(false);
+  const [isBulkActionModalOpen, setIsBulkActionModalOpen] = useState(false);
+  const [bulkActionDefaultTab, setBulkActionDefaultTab] = useState<'status' | 'location' | 'combined'>('combined');
   const [isBackloadModalOpen, setIsBackloadModalOpen] = useState(false);
+  const [isAssetLabelModalOpen, setIsAssetLabelModalOpen] = useState(false);
+  const [assetLabelItems, setAssetLabelItems] = useState<TubularItem[]>([]);
   const [photoModalItem, setPhotoModalItem] = useState<TubularItem | null>(null);
   const [selectedBackloadManifestId, setSelectedBackloadManifestId] = useState(rigBackloads[0]?.id || '');
   const [bulkStatusTarget, setBulkStatusTarget] = useState<MaintenanceStatus>('Serviceable (Field Ready)');
@@ -273,38 +281,95 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
 
       {/* Bulk Action Bar if Items Selected (Persists Across Tabs) */}
       {selectedItemIds.length > 0 && (
-        <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 shadow-lg">
-          <div className="flex items-center space-x-2 text-xs text-amber-400 font-semibold">
-            <CheckCircle2 className="w-4 h-4 text-amber-400" />
-            <span>{selectedItemIds.length} tubulars selected (Persists across navigation tabs)</span>
+        <div className="bg-gradient-to-r from-amber-500/15 via-[#16161b] to-cyan-500/10 border border-amber-500/30 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 shadow-xl">
+          <div className="flex items-center space-x-3 text-xs text-amber-400 font-bold">
+            <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/30">
+              <CheckCircle2 className="w-4 h-4 text-amber-400" />
+            </div>
+            <div>
+              <span className="text-white">{selectedItemIds.length} tubulars selected</span>
+              <p className="text-[10px] text-amber-400/80 font-normal">Ready for batch status change, relocation, or manifest dispatch</p>
+            </div>
           </div>
-          <div className="flex items-center space-x-2">
+
+          <div className="flex items-center space-x-2 flex-wrap gap-2">
+            {/* Primary Bulk Action Button */}
             <button
-              onClick={() => setIsBulkStatusModalOpen(true)}
-              className="px-3.5 py-2 text-xs font-bold rounded-xl bg-cyan-500 text-black hover:bg-cyan-400 transition flex items-center space-x-1.5 shadow"
+              onClick={() => {
+                setBulkActionDefaultTab('combined');
+                setIsBulkActionModalOpen(true);
+              }}
+              className="px-3.5 py-2 text-xs font-bold rounded-xl bg-amber-500 text-black hover:bg-amber-400 transition flex items-center space-x-1.5 shadow-md hover:scale-[1.02]"
+              title="Open full batch action suite to change status, location, yard rack, or project in a single operation"
             >
-              <CheckSquare className="w-3.5 h-3.5" />
-              <span>Bulk Status ({selectedItemIds.length})</span>
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              <span>Bulk Action ({selectedItemIds.length})</span>
             </button>
+
+            {/* Quick Status Change */}
+            <button
+              onClick={() => {
+                setBulkActionDefaultTab('status');
+                setIsBulkActionModalOpen(true);
+              }}
+              className="px-3 py-2 text-xs font-bold rounded-xl bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 border border-cyan-500/30 transition flex items-center space-x-1.5 shadow-sm"
+              title="Change inspection & maintenance status for all selected items"
+            >
+              <CheckSquare className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Change Status</span>
+            </button>
+
+            {/* Quick Relocate */}
+            <button
+              onClick={() => {
+                setBulkActionDefaultTab('location');
+                setIsBulkActionModalOpen(true);
+              }}
+              className="px-3 py-2 text-xs font-bold rounded-xl bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/30 transition flex items-center space-x-1.5 shadow-sm"
+              title="Relocate selected items to Rig, Supply Base Yard, or Machine Shop"
+            >
+              <MapPin className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Change Location</span>
+            </button>
+
+            {/* Generate QR & Asset Labels */}
+            <button
+              onClick={() => {
+                const selected = filteredItems.filter(i => selectedItemIds.includes(i.id));
+                setAssetLabelItems(selected);
+                setIsAssetLabelModalOpen(true);
+              }}
+              className="px-3 py-2 text-xs font-semibold rounded-xl bg-white/5 text-gray-200 hover:bg-white/10 border border-white/10 transition flex items-center space-x-1.5"
+              title="Generate QR code labels and printable physical yard tags for selected items"
+            >
+              <QrCode className="w-3.5 h-3.5 text-amber-400" />
+              <span>Print Labels</span>
+            </button>
+
+            {/* Assign to Vessel Manifest */}
             <button
               onClick={() => onOpenTransferModalWithItems(selectedItemIds)}
-              className="px-3.5 py-2 text-xs font-bold rounded-xl bg-amber-500 text-black hover:bg-amber-400 transition flex items-center space-x-1.5 shadow"
+              className="px-3 py-2 text-xs font-semibold rounded-xl bg-white/5 text-gray-200 hover:bg-white/10 border border-white/10 transition flex items-center space-x-1.5"
             >
-              <Truck className="w-3.5 h-3.5" />
-              <span>Assign to Vessel Manifest ({selectedItemIds.length})</span>
+              <Truck className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Vessel Manifest</span>
             </button>
+
+            {/* Assign to Backload */}
             <button
               onClick={() => setIsBackloadModalOpen(true)}
-              className="px-3.5 py-2 text-xs font-bold rounded-xl bg-purple-500 text-white hover:bg-purple-400 transition flex items-center space-x-1.5 shadow"
+              className="px-3 py-2 text-xs font-semibold rounded-xl bg-white/5 text-purple-300 hover:bg-white/10 border border-purple-500/20 transition flex items-center space-x-1.5"
             >
-              <FileCheck className="w-3.5 h-3.5" />
-              <span>Assign to Backload Manifest ({selectedItemIds.length})</span>
+              <FileCheck className="w-3.5 h-3.5 text-purple-400" />
+              <span>Backload</span>
             </button>
+
+            {/* Clear Selection */}
             <button
               onClick={() => clearTubularSelectionForTransfer()}
-              className="px-3 py-2 text-xs font-medium text-gray-400 hover:text-white"
+              className="px-2.5 py-2 text-xs font-medium text-gray-400 hover:text-white transition"
             >
-              Clear Selection
+              Clear
             </button>
           </div>
         </div>
@@ -438,6 +503,17 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
                       {/* Actions */}
                       <td className="p-4 text-right whitespace-nowrap">
                         <div className="inline-flex items-center space-x-1.5">
+                          <button
+                            onClick={() => {
+                              setAssetLabelItems([item]);
+                              setIsAssetLabelModalOpen(true);
+                            }}
+                            title="Generate QR code label & printable yard tag"
+                            className="px-2.5 py-1.5 rounded-xl bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 border border-amber-500/30 transition font-semibold text-xs inline-flex items-center space-x-1"
+                          >
+                            <QrCode className="w-3.5 h-3.5 text-amber-400" />
+                            <span>QR Label</span>
+                          </button>
                           <button
                             onClick={() => setPhotoModalItem(item)}
                             title="Take or Upload Real-time Inspection Photo (Matco)"
@@ -617,6 +693,33 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
           item={photoModalItem}
           isOpen={!!photoModalItem}
           onClose={() => setPhotoModalItem(null)}
+        />
+      )}
+
+      {/* Asset Labels & QR Code Modal */}
+      {isAssetLabelModalOpen && assetLabelItems.length > 0 && (
+        <AssetLabelModal
+          isOpen={isAssetLabelModalOpen}
+          onClose={() => {
+            setIsAssetLabelModalOpen(false);
+            setAssetLabelItems([]);
+          }}
+          items={assetLabelItems}
+          onOpenItemDetail={onSelectItem}
+        />
+      )}
+
+      {/* Bulk Action (Status & Location Batch Tool) Modal */}
+      {isBulkActionModalOpen && selectedItemIds.length > 0 && (
+        <BulkActionModal
+          isOpen={isBulkActionModalOpen}
+          onClose={() => {
+            setIsBulkActionModalOpen(false);
+            clearTubularSelectionForTransfer();
+          }}
+          selectedItemIds={selectedItemIds}
+          items={filteredItems}
+          defaultTab={bulkActionDefaultTab}
         />
       )}
 

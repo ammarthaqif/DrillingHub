@@ -43,6 +43,7 @@ export type LocationType =
 
 export type UserRole = 
   | 'System Administrator'
+  | 'Cost Controller'
   | 'Drilling Engineer'
   | 'Logistics Coordinator'
   | 'Materials Coordinator (Supply Base)'
@@ -254,8 +255,18 @@ export interface TubularItem {
   // Photos & Inspection Visual Proof (Real-time Upload)
   photos?: ItemPhotoRecord[];
 
-  // Purchase, ERP & Tracking Identifiers
-  purchaseCostUsd?: number; // Estimated asset valuation in USD
+  // Purchase, ERP & Detailed Cost Management Identifiers
+  purchaseCostUsd?: number; // Original acquisition / purchase cost in USD
+  purchaseCurrency?: string; // e.g. 'USD', 'MYR', 'EUR', 'GBP'
+  purchaseDate?: string; // e.g. "2026-01-15"
+  vendorName?: string; // e.g. "Tenaris Global", "Vallourec", "NOV Grant Prideco"
+  maintenanceCostUsd?: number; // Accumulated maintenance & repair costs
+  refurbishmentCostUsd?: number; // Hardbanding, thread recutting, bucking repairs
+  inspectionCostUsd?: number; // NDT, ultrasonic, drift testing fees
+  mobilizationCostUsd?: number; // Freight, logistics & vessel mobilization cost
+  disposalScrapCostUsd?: number; // Salvage scrap value or disposal cost
+  currentBookValueUsd?: number; // Calculated or recorded depreciated net book value
+  
   cocNumber?: string; // Certificate of Conformance
   poNumber?: string; // Purchase Order #
   poApproved?: boolean; // Approved PO flag for vendor service delivery
@@ -268,7 +279,7 @@ export interface TubularItem {
     costUsd?: number;
   };
   doNumber?: string; // Delivery Order #
-  wellChargeCode?: string; // Well / AFE Charge Code
+  wellChargeCode?: string; // Well / AFE Charge Code e.g. "AFE-2026-ALPHA-01"
   vismaNumber?: string; // VISMA ERP #
   tsrNumber?: string; // Technical Service Request #
   projectOwner?: string; // Current Project / Asset Owner
@@ -321,6 +332,7 @@ export interface MaterialTransferTicket {
   senderUserId: string;
   senderName: string;
   senderRole: UserRole;
+  senderBadgeId?: string;
   senderValidatedAt?: string;
   senderSignature?: string;
 
@@ -328,9 +340,13 @@ export interface MaterialTransferTicket {
   receiverUserId?: string;
   receiverName?: string;
   receiverRole?: UserRole;
+  receiverBadgeId?: string;
   receiverValidatedAt?: string;
   receiverSignature?: string;
+  receiverDesignation?: string;
 
+  authorizationToken?: string;
+  dispatchChecklistCompleted?: boolean;
   notes?: string;
 }
 
@@ -515,6 +531,49 @@ export interface RigBackloadList {
   kpiStatus?: BackloadKpiStatus;
 }
 
+export interface WellChargeCode {
+  id: string;
+  code: string; // e.g. "AFE-2026-ALPHA-01", "CC-BARAM-202"
+  projectName: string; // e.g. "Offshore Alpha Deepwater Campaign"
+  wellName?: string; // e.g. "Well Alpha-01"
+  wellId?: string;
+  campaignId?: string;
+  operator: string; // e.g. "Petronas Carigali", "Shell", "Chevron"
+  allocatedBudgetUsd: number; // e.g. 5,000,000
+  committedCostUsd: number; // e.g. 2,100,000
+  actualSpendUsd: number; // e.g. 1,450,000
+  currency: 'USD' | 'MYR' | 'EUR' | 'GBP';
+  status: 'Active' | 'Closed' | 'Over Budget' | 'Draft' | 'Near Limit';
+  costCenter: string; // e.g. "CC-EXP-9002"
+  costControllerOwner: string; // e.g. "Rachel Lee (Finance Focal)"
+  description: string;
+  validFrom: string;
+  validTo: string;
+  createdDate: string;
+  updatedAt?: string;
+}
+
+export type NotificationCategory = 
+  | 'INSPECTION'
+  | 'TRANSFER'
+  | 'SURPLUS'
+  | 'BACKLOAD'
+  | 'FINANCE_COST'
+  | 'SECURITY_RBAC'
+  | 'GENERAL';
+
+export interface SystemNotification {
+  id: string;
+  timestamp: string; // ISO string
+  title: string;
+  message: string;
+  category: NotificationCategory;
+  severity: 'info' | 'warning' | 'error' | 'success';
+  isRead: boolean;
+  referenceId?: string;
+  linkNav?: string;
+}
+
 export interface AuditTrailLog {
   id: string;
   timestamp: string; // ISO String
@@ -532,7 +591,11 @@ export interface AuditTrailLog {
     | 'ITEM_CREATED'
     | 'ITEM_UPDATED'
     | 'ITEM_DELETED'
+    | 'BULK_STATUS_UPDATED'
+    | 'BULK_LOCATION_UPDATED'
+    | 'BULK_ITEMS_UPDATED'
     | 'AUDIT_REPORT_GENERATED'
+    | 'CUSTOM_REPORT_EXPORTED'
     | 'OWNERSHIP_TRANSFERRED'
     | 'MATERIAL_TRANSFER_DISPATCHED'
     | 'MATERIAL_TRANSFER_RECEIVED'
@@ -542,7 +605,13 @@ export interface AuditTrailLog {
     | 'USER_STATUS_UPDATED'
     | 'USER_ROLE_UPDATED'
     | 'USER_DELETED'
-    | 'SYSTEM_CONFIG_UPDATED';
+    | 'SYSTEM_CONFIG_UPDATED'
+    | 'CHARGE_CODE_CREATED'
+    | 'CHARGE_CODE_UPDATED'
+    | 'CHARGE_CODE_DELETED'
+    | 'CHARGE_CODES_IMPORTED'
+    | 'DATABASE_BACKUP_EXPORTED'
+    | 'DATABASE_RESTORE_PERFORMED';
   referenceId: string; // e.g. Manifest # "BLM-2026-8841", Item # "CSG-1338-001"
   details: string;
   notes?: string;

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useDrilling } from '../context/DrillingContext';
-import { HoleSection } from '../types/drilling';
+import { HoleSection, MaintenanceStatus } from '../types/drilling';
 import { KpiPerformanceView } from './KpiPerformanceView';
+import { InventoryStatusDonutChart } from './InventoryStatusDonutChart';
 import { 
   Package, 
   CheckCircle2, 
@@ -37,8 +38,13 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   onOpenAiAudit,
   onOpenAlerts,
 }) => {
-  const { items, transfers, alerts, setSelectedHoleSection } = useDrilling();
+  const { items, transfers, alerts, setSelectedHoleSection, setSelectedStatus } = useDrilling();
   const [dashboardView, setDashboardView] = useState<'overview' | 'kpi'>('overview');
+
+  const handleSelectStatusFilter = (status: MaintenanceStatus | 'ALL') => {
+    setSelectedStatus(status);
+    onNavigateTab('inventory');
+  };
 
   const totalJoints = items.reduce((acc, i) => acc + (i.quantityJoints || 1), 0);
   const totalLengthFt = items.reduce((acc, i) => acc + (i.lengthFt || 0), 0);
@@ -224,6 +230,12 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             </div>
 
           </div>
+
+          {/* D3 Inventory Status Health Breakdown Donut Chart */}
+          <InventoryStatusDonutChart 
+            items={items} 
+            onSelectStatusFilter={handleSelectStatusFilter} 
+          />
 
           {/* Main Grid: Hole Section Readiness vs Quick Actions */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

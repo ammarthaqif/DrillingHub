@@ -20,6 +20,8 @@ import { MaterialsManagementHub } from './components/MaterialsManagementHub';
 import { SupplyBaseHub } from './components/SupplyBaseHub';
 import { RigSiteHub } from './components/RigSiteHub';
 import { CheckAndBalanceHub } from './components/CheckAndBalanceHub';
+import { CostControllerHub } from './components/CostControllerHub';
+import { NotificationCenterModal } from './components/NotificationCenterModal';
 import { AuthGate } from './components/AuthGate';
 import { ConcurrentLoginPromptModal } from './components/ConcurrentLoginPromptModal';
 import { CampaignManagerModal } from './components/CampaignManagerModal';
@@ -44,7 +46,8 @@ import {
   Building2,
   Anchor,
   Scale,
-  Package
+  Package,
+  Receipt
 } from 'lucide-react';
 
 const MainAppContent: React.FC = () => {
@@ -53,6 +56,7 @@ const MainAppContent: React.FC = () => {
     items, 
     transfers, 
     allUsers,
+    chargeCodes,
     isAuthenticated,
     isOffline,
     setIsOffline,
@@ -64,14 +68,14 @@ const MainAppContent: React.FC = () => {
   const userRole = currentUser?.role || 'Drilling Engineer';
 
   const [activeNav, setActiveNav] = useState<
-    'dashboard' | 'materialsManagement' | 'inventory' | 'drillingEngineer' | 'supplyBaseMatco' | 'rigSiteMatco' | 'checkAndBalance' | 'holeSection' | 'surplus' | 'movement' | 'audit' | 'admin'
+    'dashboard' | 'materialsManagement' | 'inventory' | 'drillingEngineer' | 'supplyBaseMatco' | 'rigSiteMatco' | 'checkAndBalance' | 'costController' | 'holeSection' | 'surplus' | 'movement' | 'audit' | 'admin'
   >('dashboard');
 
   const pendingApprovalsCount = allUsers.filter(u => u.status === 'Pending Email Verification' || u.status === 'Pending Admin Approval').length;
 
   // Module Navigation Definitions
   const navTabs: Array<{
-    key: 'dashboard' | 'materialsManagement' | 'inventory' | 'drillingEngineer' | 'supplyBaseMatco' | 'rigSiteMatco' | 'checkAndBalance' | 'holeSection' | 'surplus' | 'movement' | 'audit' | 'admin';
+    key: 'dashboard' | 'materialsManagement' | 'inventory' | 'drillingEngineer' | 'supplyBaseMatco' | 'rigSiteMatco' | 'checkAndBalance' | 'costController' | 'holeSection' | 'surplus' | 'movement' | 'audit' | 'admin';
     label: string;
     icon: React.ReactNode;
     badge?: number;
@@ -80,6 +84,7 @@ const MainAppContent: React.FC = () => {
     { key: 'materialsManagement', label: 'Materials Management', icon: <Package className="w-4 h-4 text-emerald-400" />, badge: items.length },
     { key: 'inventory', label: 'Tubulars & Tools', icon: <HardHat className="w-4 h-4" /> },
     { key: 'drillingEngineer', label: 'Drilling Engineer Hub', icon: <Calculator className="w-4 h-4 text-amber-400" /> },
+    { key: 'costController', label: 'Cost Controller Hub', icon: <Receipt className="w-4 h-4 text-emerald-400" />, badge: chargeCodes?.length },
     { key: 'supplyBaseMatco', label: 'Supply Base Matco', icon: <Building2 className="w-4 h-4 text-emerald-400" /> },
     { key: 'rigSiteMatco', label: 'Rig Site Matco', icon: <Anchor className="w-4 h-4 text-cyan-400" /> },
     { key: 'checkAndBalance', label: 'Check & Balance Matrix', icon: <ShieldCheck className="w-4 h-4 text-purple-400" /> },
@@ -114,6 +119,7 @@ const MainAppContent: React.FC = () => {
   const [isAiAuditModalOpen, setIsAiAuditModalOpen] = useState(false);
   const [isCampaignModalOpen, setIsCampaignModalOpen] = useState(false);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+  const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
 
   if (!isAuthenticated) {
     return <AuthGate />;
@@ -144,6 +150,7 @@ const MainAppContent: React.FC = () => {
         onOpenAdminPanel={() => setActiveNav('admin')}
         onOpenCampaignModal={() => setIsCampaignModalOpen(true)}
         onOpenBackupModal={() => setIsBackupModalOpen(true)}
+        onOpenNotificationCenter={() => setIsNotificationModalOpen(true)}
       />
 
       {/* Role Banner & Department Badge */}
@@ -255,6 +262,13 @@ const MainAppContent: React.FC = () => {
           <CheckAndBalanceHub />
         )}
 
+        {activeNav === 'costController' && (
+          <CostControllerHub 
+            onSelectItem={(item) => setSelectedItemForDrawer(item)}
+            onNavigateTab={(tab) => setActiveNav(tab as any)}
+          />
+        )}
+
         {activeNav === 'holeSection' && (
           <HoleSectionPlanner
             onSelectItem={(item) => setSelectedItemForDrawer(item)}
@@ -351,6 +365,12 @@ const MainAppContent: React.FC = () => {
       <BackupRestoreModal
         isOpen={isBackupModalOpen}
         onClose={() => setIsBackupModalOpen(false)}
+      />
+
+      <NotificationCenterModal
+        isOpen={isNotificationModalOpen}
+        onClose={() => setIsNotificationModalOpen(false)}
+        onNavigateTab={(tab) => setActiveNav(tab as any)}
       />
 
       <ConcurrentLoginPromptModal />

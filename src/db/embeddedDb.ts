@@ -1,4 +1,4 @@
-import { TubularItem, MaterialTransferTicket, UserProfile, MaintenanceStatus, DrillingCampaign, DatabaseBackupRecord } from '../types/drilling';
+import { TubularItem, MaterialTransferTicket, UserProfile, MaintenanceStatus, DrillingCampaign, DatabaseBackupRecord, WellChargeCode, SystemNotification } from '../types/drilling';
 import { safeJsonStringify, safeJsonParse, safeClone } from '../utils/safeJson';
 
 export interface VerificationEmailRecord {
@@ -114,6 +114,7 @@ export const INITIAL_CAMPAIGNS: DrillingCampaign[] = [
 export const DEFAULT_ROLES = [
   'System Administrator',
   'Drilling Engineer',
+  'Cost Controller',
   'Logistics Coordinator',
   'Materials Coordinator (Supply Base)',
   'Rig Toolpusher / Materials Specialist',
@@ -490,6 +491,42 @@ class EmbeddedRealtimeDatabase {
       return safeJsonParse(raw, []);
     } catch {
       return [];
+    }
+  }
+
+  // Save charge codes snapshot
+  public async saveChargeCodes(chargeCodes: WellChargeCode[]) {
+    try {
+      localStorage.setItem('drillspec_charge_codes', safeJsonStringify(chargeCodes));
+    } catch (e) {
+      console.warn('Error saving charge codes', e);
+    }
+  }
+
+  // Save notifications snapshot
+  public async saveNotifications(notifications: SystemNotification[]) {
+    try {
+      localStorage.setItem('drillspec_notifications', safeJsonStringify(notifications));
+    } catch (e) {
+      console.warn('Error saving notifications', e);
+    }
+  }
+
+  public loadChargeCodes(): WellChargeCode[] | null {
+    try {
+      const raw = localStorage.getItem('drillspec_charge_codes');
+      return safeJsonParse(raw, null);
+    } catch {
+      return null;
+    }
+  }
+
+  public loadNotifications(): SystemNotification[] | null {
+    try {
+      const raw = localStorage.getItem('drillspec_notifications');
+      return safeJsonParse(raw, null);
+    } catch {
+      return null;
     }
   }
 

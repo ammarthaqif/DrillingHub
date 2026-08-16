@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useDrilling } from '../context/DrillingContext';
 import { HoleSection, LocationType } from '../types/drilling';
+import { ExportCustomReportModal } from './ExportCustomReportModal';
 import { 
   FileSpreadsheet, 
   Printer, 
@@ -10,7 +11,9 @@ import {
   FileText, 
   CheckCircle2, 
   AlertTriangle,
-  Download
+  Download,
+  SlidersHorizontal,
+  Sparkles
 } from 'lucide-react';
 
 export const AuditReportView: React.FC = () => {
@@ -18,6 +21,7 @@ export const AuditReportView: React.FC = () => {
 
   const [selectedReportHoleSection, setSelectedReportHoleSection] = useState<HoleSection | 'ALL'>('ALL');
   const [selectedReportLocation, setSelectedReportLocation] = useState<LocationType | 'ALL'>('ALL');
+  const [isCustomReportModalOpen, setIsCustomReportModalOpen] = useState(false);
 
   const reportItems = items.filter(i => {
     if (selectedReportHoleSection !== 'ALL' && i.holeSection !== selectedReportHoleSection) return false;
@@ -78,7 +82,17 @@ export const AuditReportView: React.FC = () => {
             </p>
           </div>
 
-          <div className="flex items-center space-x-2 shrink-0">
+          <div className="flex items-center space-x-2 shrink-0 flex-wrap gap-2">
+            {/* Custom Report Builder Button */}
+            <button
+              onClick={() => setIsCustomReportModalOpen(true)}
+              className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold transition text-xs flex items-center space-x-2 shadow-lg hover:scale-[1.02]"
+              title="Select custom data columns and time ranges to generate PDF summaries of asset lifecycle events"
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+              <span>Export Custom Report</span>
+            </button>
+
             <button
               onClick={handleExportCSV}
               className="px-3.5 py-2.5 rounded-xl bg-white/5 text-gray-200 border border-white/10 hover:bg-white/10 transition text-xs font-semibold flex items-center space-x-1.5"
@@ -89,10 +103,10 @@ export const AuditReportView: React.FC = () => {
 
             <button
               onClick={handlePrint}
-              className="px-4 py-2.5 rounded-xl bg-amber-500 text-black font-semibold hover:bg-amber-400 transition text-xs flex items-center space-x-2 shadow-md"
+              className="px-3.5 py-2.5 rounded-xl bg-white/5 text-gray-200 border border-white/10 hover:bg-white/10 transition text-xs font-semibold flex items-center space-x-1.5"
             >
-              <Printer className="w-4 h-4" />
-              <span>Print / Save PDF Report</span>
+              <Printer className="w-4 h-4 text-cyan-400" />
+              <span>Quick Print</span>
             </button>
           </div>
         </div>
@@ -241,6 +255,15 @@ export const AuditReportView: React.FC = () => {
         </div>
 
       </div>
+
+      {/* Export Custom Report Modal */}
+      {isCustomReportModalOpen && (
+        <ExportCustomReportModal
+          isOpen={isCustomReportModalOpen}
+          onClose={() => setIsCustomReportModalOpen(false)}
+          items={reportItems}
+        />
+      )}
 
     </div>
   );

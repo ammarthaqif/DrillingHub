@@ -1138,15 +1138,15 @@ export const AdminPanel: React.FC = () => {
       {activeTab === 'database' && (
         <div className="space-y-6">
           
-          {/* Dedicated Firebase Cloud Firestore Card */}
+          {/* Enterprise Cloud Persistence Card */}
           <div className="bg-[#111114] border border-white/10 rounded-2xl p-6 space-y-6 shadow-xl">
             <div className="border-b border-white/10 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <div className="flex items-center space-x-2">
                   <Database className="w-5 h-5 text-amber-400" />
-                  <h3 className="font-bold text-white text-base">Dedicated Firebase Firestore Database</h3>
+                  <h3 className="font-bold text-white text-base">Enterprise Cloud Database</h3>
                   <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-mono font-bold">
-                    Target Instance Active
+                    Encrypted Cloud Active
                   </span>
                 </div>
                 <p className="text-xs text-gray-400 mt-1">
@@ -1178,7 +1178,7 @@ export const AdminPanel: React.FC = () => {
                 <button
                   type="button"
                   onClick={async () => {
-                    if (window.confirm('Execute complete database migration to dedicated Firestore instance? All current tubular inventory, campaigns, transfers, and user credentials will be synchronized.')) {
+                    if (window.confirm('Execute complete cloud database synchronization? All current tubular inventory, campaigns, transfers, and authorized user credentials will be synchronized.')) {
                       setMigrationOutput(null);
                       const res = await migrateDatabaseToDedicatedFirestore();
                       setMigrationOutput(res);
@@ -1192,7 +1192,7 @@ export const AdminPanel: React.FC = () => {
                   ) : (
                     <Upload className="w-3.5 h-3.5" />
                   )}
-                  <span>{isMigratingToDedicatedDb ? 'Migrating Database...' : 'Migrate to Dedicated Firestore'}</span>
+                  <span>{isMigratingToDedicatedDb ? 'Synchronizing Database...' : 'Synchronize Cloud Database'}</span>
                 </button>
               </div>
             </div>
@@ -1210,7 +1210,7 @@ export const AdminPanel: React.FC = () => {
                   <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
                 )}
                 <div>
-                  <strong className="font-bold">Dedicated Firestore Diagnostic:</strong> {dbTestResult.message}
+                  <strong className="font-bold">Cloud Database Diagnostic:</strong> {dbTestResult.message}
                   {dbTestResult.latencyMs && (
                     <span className="ml-2 font-mono text-[11px] text-emerald-400">({dbTestResult.latencyMs}ms response latency)</span>
                   )}
@@ -1230,7 +1230,7 @@ export const AdminPanel: React.FC = () => {
                   <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
                 )}
                 <div className="space-y-1">
-                  <p><strong className="font-bold">Migration Outcome:</strong> {migrationOutput.message}</p>
+                  <p><strong className="font-bold">Synchronization Outcome:</strong> {migrationOutput.message}</p>
                   {migrationOutput.details && (
                     <p className="text-[11px] font-mono text-gray-300">
                       Synchronized: {migrationOutput.details.items} items, {migrationOutput.details.users} users, {migrationOutput.details.transfers} transfers, {migrationOutput.details.campaigns} campaigns.
@@ -1243,10 +1243,10 @@ export const AdminPanel: React.FC = () => {
             {/* Database Instance Parameters Grid */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
               <div className="bg-white/5 border border-white/5 p-4 rounded-xl space-y-1.5">
-                <span className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Database Target Identifier</span>
-                <p className="font-mono text-xs text-amber-400 font-bold break-all">{dedicatedDatabaseId}</p>
-                <span className="inline-block px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 text-[10px]">
-                  Dedicated Applet Instance
+                <span className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Persistence Storage Status</span>
+                <p className="font-mono text-xs text-amber-400 font-bold">Encrypted Enterprise Cloud</p>
+                <span className="inline-block px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 text-[10px]">
+                  Online & Active
                 </span>
               </div>
 

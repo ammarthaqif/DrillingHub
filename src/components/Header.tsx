@@ -17,7 +17,8 @@ import {
   FolderKanban,
   Database,
   LogOut,
-  Lock
+  Lock,
+  Bell
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -30,6 +31,7 @@ interface HeaderProps {
   onOpenAdminPanel?: () => void;
   onOpenCampaignModal?: () => void;
   onOpenBackupModal?: () => void;
+  onOpenNotificationCenter?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -42,6 +44,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAdminPanel,
   onOpenCampaignModal,
   onOpenBackupModal,
+  onOpenNotificationCenter,
 }) => {
   const { 
     currentUser, 
@@ -49,6 +52,7 @@ export const Header: React.FC<HeaderProps> = ({
     setCurrentUserRole, 
     logoutUser,
     alerts, 
+    unreadNotificationCount,
     isOffline, 
     setIsOffline, 
     offlineQueue, 
@@ -156,6 +160,27 @@ export const Header: React.FC<HeaderProps> = ({
               >
                 <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
                 <span className="hidden lg:inline">Audit Reports</span>
+              </button>
+            )}
+
+            {/* Notification Center Bell */}
+            {onOpenNotificationCenter && (
+              <button
+                onClick={onOpenNotificationCenter}
+                className={`relative flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium rounded-xl transition border ${
+                  unreadNotificationCount > 0
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30'
+                    : 'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10'
+                }`}
+                title="System Notifications & Alerts"
+              >
+                <Bell className={`w-4 h-4 ${unreadNotificationCount > 0 ? 'text-amber-400' : 'text-gray-400'}`} />
+                <span className="hidden sm:inline">Notices</span>
+                {unreadNotificationCount > 0 && (
+                  <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-500 text-black">
+                    {unreadNotificationCount}
+                  </span>
+                )}
               </button>
             )}
 

@@ -26,7 +26,9 @@ import {
   DrillingCampaign,
   WellDefinition,
   ItemPhotoRecord,
-  DatabaseBackupRecord
+  DatabaseBackupRecord,
+  WellChargeCode,
+  SystemNotification
 } from '../types/drilling';
 import { 
   INITIAL_ITEMS, 
@@ -36,7 +38,9 @@ import {
   INITIAL_REQUISITIONS,
   INITIAL_RIG_CALLOUTS,
   INITIAL_RIG_BACKLOADS,
-  INITIAL_AUDIT_LOGS
+  INITIAL_AUDIT_LOGS,
+  INITIAL_CHARGE_CODES,
+  INITIAL_NOTIFICATIONS
 } from '../data/initialData';
 import { 
   embeddedDb, 
@@ -140,6 +144,16 @@ interface DrillingContextType {
   bulkAddItems: (newItemsData: Omit<TubularItem, 'id' | 'updatedAt' | 'qrCodeData' | 'inspectionHistory' | 'maintenanceLogs'>[]) => void;
   updateItem: (id: string, updates: Partial<TubularItem>) => void;
   bulkUpdateStatus: (itemIds: string[], status: MaintenanceStatus, notes?: string) => void;
+  bulkUpdateLocation: (itemIds: string[], location: LocationType, rackLocation?: string, notes?: string) => void;
+  bulkUpdateItems: (itemIds: string[], updates: {
+    status?: MaintenanceStatus;
+    currentLocation?: LocationType;
+    rackLocation?: string;
+    condition?: EquipmentCondition;
+    holeSection?: HoleSection;
+    projectOwner?: string;
+    wellChargeCode?: string;
+  }, notes?: string) => void;
   transferOwnership: (
     itemId: string, 
     newProjectOwner: string, 
@@ -161,7 +175,18 @@ interface DrillingContextType {
     carrierType: MaterialTransferTicket['carrierType'], 
     carrierName: string, 
     selectedItemIds: { itemId: string; quantityJoints: number }[],
-    notes?: string
+    notes?: string,
+    signOffDetails?: {
+      senderSignature?: string;
+      senderBadgeId?: string;
+      receiverName?: string;
+      receiverRole?: UserRole;
+      receiverSignature?: string;
+      receiverBadgeId?: string;
+      receiverDesignation?: string;
+      authorizationToken?: string;
+      dispatchChecklistCompleted?: boolean;
+    }
   ) => MaterialTransferTicket;
   validateSenderDispatch: (transferId: string, notes?: string) => void;
   validateReceiverArrival: (
@@ -250,6 +275,23 @@ interface DrillingContextType {
   createBackupVaultSnapshot: (backupType?: DatabaseBackupRecord['backupType'], notes?: string) => DatabaseBackupRecord;
   downloadBackupFile: (backupId?: string) => void;
   restoreFromBackupSnapshot: (restoredData: any) => void;
+  exportEncryptedSnapshot: (passphrase?: string) => string;
+  importEncryptedSnapshot: (fileContent: string, passphrase?: string) => { success: boolean; message: string; stats?: any };
+
+  // Notifications Center
+  notifications: SystemNotification[];
+  unreadNotificationCount: number;
+  markNotificationRead: (id: string) => void;
+  markAllNotificationsRead: () => void;
+  clearNotification: (id: string) => void;
+  addSystemNotification: (notif: Omit<SystemNotification, 'id' | 'timestamp' | 'isRead'>) => void;
+
+  // Well & Project Charge Codes (Cost Controller Hub)
+  chargeCodes: WellChargeCode[];
+  addChargeCode: (code: Omit<WellChargeCode, 'id' | 'createdDate'>) => { success: boolean; message: string; chargeCode?: WellChargeCode };
+  updateChargeCode: (id: string, updates: Partial<WellChargeCode>) => { success: boolean; message: string };
+  deleteChargeCode: (id: string) => { success: boolean; message: string };
+  importChargeCodes: (codes: Partial<WellChargeCode>[]) => { success: boolean; importedCount: number; errors: string[] };
 
   // Filters & Views
   searchQuery: string;
@@ -295,10 +337,13 @@ export const DEFAULT_ROLE_MODULE_PERMISSIONS: Record<string, string[]> = {
   'System Administrator': [
     'dashboard', 'inventory', 'materialsManagement', 'drillingEngineer', 'supplyBaseMatco', 
     'rigSiteMatco', 'checkAndBalance', 'holeSection', 'surplus', 
-    'movement', 'audit', 'admin'
+    'movement', 'costController', 'audit', 'admin'
   ],
   'Drilling Engineer': [
-    'dashboard', 'inventory', 'materialsManagement', 'drillingEngineer', 'holeSection', 'surplus'
+    'dashboard', 'inventory', 'materialsManagement', 'drillingEngineer', 'holeSection', 'surplus', 'costController'
+  ],
+  'Cost Controller': [
+    'dashboard', 'inventory', 'materialsManagement', 'movement', 'checkAndBalance', 'surplus', 'costController', 'audit'
   ],
   'Logistics Coordinator': [
     'dashboard', 'inventory', 'materialsManagement', 'movement', 'supplyBaseMatco', 'rigSiteMatco', 'surplus'
@@ -316,7 +361,7 @@ export const DEFAULT_ROLE_MODULE_PERMISSIONS: Record<string, string[]> = {
     'dashboard', 'inventory', 'checkAndBalance', 'audit'
   ],
   'Auditor / Management': [
-    'dashboard', 'inventory', 'audit', 'checkAndBalance'
+    'dashboard', 'inventory', 'audit', 'checkAndBalance', 'costController'
   ]
 };
 
@@ -554,19 +599,15 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       u => u.id === userId || u.email.toLowerCase() === userId.toLowerCase()
     );
     if (!user) {
-      return { success: false, message: 'User identity not found in corporate directory.' };
+      return { success: false, message: 'Access Denied: User identity not found in authorized directory. Access must be granted by the System Administrator.' };
     }
 
     if (user.status === 'Suspended' || user.status === 'Deactivated') {
-      return { success: false, message: `Access Denied: Account is ${user.status}.` };
+      return { success: false, message: `Access Denied: Account is ${user.status}. Access must be granted by the System Administrator.` };
     }
 
-    if (user.status === 'Pending Email Verification') {
-      return { success: false, message: 'Account requires email domain verification.' };
-    }
-
-    if (user.status === 'Pending Admin Approval') {
-      return { success: false, message: 'Account is pending Administrator security review.' };
+    if (user.status !== 'Active Approved') {
+      return { success: false, message: `Access Denied: Account status is '${user.status}'. Access must be granted and approved by the System Administrator.` };
     }
 
     // Password validation using salted SHA-256 cryptographic hashes
@@ -707,35 +748,24 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const domain = cleanEmail.split('@')[1];
     const isDomainAllowed = systemConfig.corporateDomains.some(d => d.toLowerCase() === domain);
 
-    // Look for existing user in corporate directory
+    // Look for existing user in corporate directory that was granted access by System Administrator
     const user = allUsers.find(
       u => u.email.toLowerCase() === cleanEmail || (u.msAuthUid && u.msAuthUid === msUser.uid)
     );
 
     if (!user) {
-      // First-time Microsoft user registration check
-      if (!isDomainAllowed && !systemConfig.autoApproveVerifiedCorporateEmails) {
-        return {
-          success: false,
-          requiresRegistration: true,
-          message: `Domain '@${domain}' is not authorized under corporate security policy. Please contact your System Administrator to whitelist your organization's Microsoft 365 tenant.`
-        };
-      }
-
-      // Signal that first-time registration form should be completed
       return {
         success: false,
-        requiresRegistration: true,
-        message: `Microsoft Entra ID authenticated (${msUser.displayName}). Please complete first-time department and role assignment to finalize registration.`
+        message: `Access Denied: The account '${cleanEmail}' has not been granted access by a System Administrator. Please contact your System Administrator to be provisioned in the authorized user directory.`
       };
     }
 
     if (user.status === 'Suspended' || user.status === 'Deactivated') {
-      return { success: false, message: `Access Denied: Account for ${user.email} is ${user.status}.` };
+      return { success: false, message: `Access Denied: Account for ${user.email} is ${user.status}. Access must be granted by the System Administrator.` };
     }
 
-    if (user.status === 'Pending Admin Approval') {
-      return { success: false, message: 'Account is pending Administrator security review.' };
+    if (user.status !== 'Active Approved') {
+      return { success: false, message: `Access Denied: Account for ${user.email} is '${user.status}'. Access has not been granted/approved by the System Administrator.` };
     }
 
     // Concurrent Single Active Session Check
@@ -1286,8 +1316,99 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setAuditTrailLogs(restoredData.auditTrailLogs);
       embeddedDb.saveAuditLogs(restoredData.auditTrailLogs);
     }
+    if (Array.isArray(restoredData.chargeCodes)) {
+      setChargeCodes(restoredData.chargeCodes);
+      embeddedDb.saveChargeCodes(restoredData.chargeCodes);
+    }
+    if (Array.isArray(restoredData.notifications)) {
+      setNotifications(restoredData.notifications);
+      embeddedDb.saveNotifications(restoredData.notifications);
+    }
 
     logAuditTrail('SYSTEM_CONFIG_UPDATED', 'DATABASE_RESTORE', 'Restored full system database from backup point');
+  };
+
+  // Encrypted Snapshot Export & Import Methods
+  const exportEncryptedSnapshot = (passphrase: string = 'DRILLCORE-2026-ENCRYPTED'): string => {
+    const fullPayload = {
+      header: 'DRILLCORE-SECURE-VAULT',
+      version: '3.0.0-Enterprise',
+      exportedAt: new Date().toISOString(),
+      exportedBy: currentUser?.name || 'System Admin',
+      data: {
+        items,
+        transfers,
+        rigBackloads,
+        allUsers,
+        campaigns,
+        auditTrailLogs,
+        surplusBookings,
+        materialRequisitions,
+        rigCallouts,
+        chargeCodes,
+        notifications,
+        systemConfig,
+      }
+    };
+
+    const rawJson = safeJsonStringify(fullPayload);
+    // Simple robust reversible XOR-Base64 cipher with passphrase
+    let cipherText = '';
+    const key = passphrase.trim() || 'DRILLCORE-2026-KEY';
+    for (let i = 0; i < rawJson.length; i++) {
+      const charCode = rawJson.charCodeAt(i) ^ key.charCodeAt(i % key.length);
+      cipherText += String.fromCharCode(charCode);
+    }
+    const base64Encrypted = btoa(unescape(encodeURIComponent(cipherText)));
+    
+    logAuditTrail('DATABASE_BACKUP_EXPORTED', 'ENCRYPTED_SNAPSHOT', 'Exported encrypted system vault database snapshot');
+    return `DRILLCORE-ENCRYPTED-VAULT:v2:${base64Encrypted}`;
+  };
+
+  const importEncryptedSnapshot = (fileContent: string, passphrase: string = 'DRILLCORE-2026-ENCRYPTED'): { success: boolean; message: string; stats?: any } => {
+    try {
+      let contentToParse = fileContent.trim();
+      let rawJson = '';
+
+      if (contentToParse.startsWith('DRILLCORE-ENCRYPTED-VAULT:v2:')) {
+        const base64Payload = contentToParse.replace('DRILLCORE-ENCRYPTED-VAULT:v2:', '');
+        const decoded = decodeURIComponent(escape(atob(base64Payload)));
+        const key = passphrase.trim() || 'DRILLCORE-2026-KEY';
+        let decrypted = '';
+        for (let i = 0; i < decoded.length; i++) {
+          const charCode = decoded.charCodeAt(i) ^ key.charCodeAt(i % key.length);
+          decrypted += String.fromCharCode(charCode);
+        }
+        rawJson = decrypted;
+      } else {
+        rawJson = contentToParse;
+      }
+
+      const parsed = safeJsonParse(rawJson, null);
+      if (!parsed) {
+        return { success: false, message: 'Invalid or corrupt backup vault snapshot payload.' };
+      }
+
+      const payloadData = parsed.data || parsed;
+      restoreFromBackupSnapshot(payloadData);
+
+      const stats = {
+        itemsCount: payloadData.items?.length || items.length,
+        transfersCount: payloadData.transfers?.length || transfers.length,
+        chargeCodesCount: payloadData.chargeCodes?.length || chargeCodes.length,
+        campaignsCount: payloadData.campaigns?.length || campaigns.length,
+      };
+
+      logAuditTrail('DATABASE_RESTORE_PERFORMED', 'ENCRYPTED_RESTORE', `Successfully restored encrypted snapshot with ${stats.itemsCount} items.`);
+      return {
+        success: true,
+        message: `Restoration complete. Successfully synchronized ${stats.itemsCount} items, ${stats.transfersCount} transfers, and ${stats.chargeCodesCount} charge codes.`,
+        stats,
+      };
+    } catch (err: any) {
+      console.error('Import error:', err);
+      return { success: false, message: `Decryption / Import failed: ${err?.message || 'Incorrect passphrase or corrupt file format.'}` };
+    }
   };
 
   // Scheduled daily auto-backup timer
@@ -1322,6 +1443,16 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return embeddedDb.loadAuditLogs() || INITIAL_AUDIT_LOGS;
   });
 
+  // Well & Project Charge Codes State
+  const [chargeCodes, setChargeCodes] = useState<WellChargeCode[]>(() => {
+    return embeddedDb.loadChargeCodes() || INITIAL_CHARGE_CODES;
+  });
+
+  // Notifications State
+  const [notifications, setNotifications] = useState<SystemNotification[]>(() => {
+    return embeddedDb.loadNotifications() || INITIAL_NOTIFICATIONS;
+  });
+
   useEffect(() => {
     embeddedDb.saveAuditLogs(auditTrailLogs);
   }, [auditTrailLogs]);
@@ -1329,6 +1460,156 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   useEffect(() => {
     embeddedDb.saveBackloads(rigBackloads);
   }, [rigBackloads]);
+
+  useEffect(() => {
+    embeddedDb.saveChargeCodes(chargeCodes);
+  }, [chargeCodes]);
+
+  useEffect(() => {
+    embeddedDb.saveNotifications(notifications);
+  }, [notifications]);
+
+  // Notifications Handlers
+  const unreadNotificationCount = useMemo(() => {
+    return notifications.filter(n => !n.isRead).length;
+  }, [notifications]);
+
+  const markNotificationRead = (id: string) => {
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
+  };
+
+  const markAllNotificationsRead = () => {
+    setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+  };
+
+  const clearNotification = (id: string) => {
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  };
+
+  const addSystemNotification = (notif: Omit<SystemNotification, 'id' | 'timestamp' | 'isRead'>) => {
+    const newNotif: SystemNotification = {
+      ...notif,
+      id: `notif-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      timestamp: new Date().toISOString(),
+      isRead: false,
+    };
+    setNotifications(prev => [newNotif, ...prev]);
+  };
+
+  // Charge Codes Handlers
+  const addChargeCode = (codeData: Omit<WellChargeCode, 'id' | 'createdDate'>): { success: boolean; message: string; chargeCode?: WellChargeCode } => {
+    const cleanCode = codeData.code.trim().toUpperCase();
+    if (!cleanCode) {
+      return { success: false, message: 'Charge Code (AFE / Cost Center) is required.' };
+    }
+    const duplicate = chargeCodes.some(c => c.code.toUpperCase() === cleanCode);
+    if (duplicate) {
+      return { success: false, message: `Charge code "${cleanCode}" already exists in the system directory.` };
+    }
+
+    const newChargeCode: WellChargeCode = {
+      ...codeData,
+      id: `cc-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      code: cleanCode,
+      createdDate: new Date().toISOString().split('T')[0],
+      updatedAt: new Date().toISOString(),
+    };
+
+    setChargeCodes(prev => [newChargeCode, ...prev]);
+    logAuditTrail('CHARGE_CODE_CREATED', newChargeCode.code, `Created Well Charge Code ${newChargeCode.code} for project "${newChargeCode.projectName}".`);
+    
+    addSystemNotification({
+      title: 'New Charge Code Created',
+      message: `Charge Code ${newChargeCode.code} ($${newChargeCode.allocatedBudgetUsd.toLocaleString()}) created by ${currentUser?.name || 'Cost Controller'}.`,
+      category: 'FINANCE_COST',
+      severity: 'info',
+      referenceId: newChargeCode.code,
+      linkNav: 'costController',
+    });
+
+    return { success: true, message: `Charge Code ${newChargeCode.code} registered successfully.`, chargeCode: newChargeCode };
+  };
+
+  const updateChargeCode = (id: string, updates: Partial<WellChargeCode>): { success: boolean; message: string } => {
+    setChargeCodes(prev => prev.map(c => {
+      if (c.id === id) {
+        const updated = { ...c, ...updates, updatedAt: new Date().toISOString() };
+        logAuditTrail('CHARGE_CODE_UPDATED', c.code, `Updated Charge Code ${c.code} budget/spend allocations.`);
+        return updated;
+      }
+      return c;
+    }));
+    return { success: true, message: 'Charge Code details updated successfully.' };
+  };
+
+  const deleteChargeCode = (id: string): { success: boolean; message: string } => {
+    const target = chargeCodes.find(c => c.id === id);
+    if (!target) return { success: false, message: 'Charge code not found.' };
+
+    // Check if any items or transfers are linked
+    const linkedItemsCount = items.filter(it => it.wellChargeCode === target.code).length;
+    if (linkedItemsCount > 0) {
+      return {
+        success: false,
+        message: `Cannot delete Charge Code ${target.code}: It is currently referenced by ${linkedItemsCount} inventory items. Reallocate items before deleting.`
+      };
+    }
+
+    setChargeCodes(prev => prev.filter(c => c.id !== id));
+    logAuditTrail('CHARGE_CODE_DELETED', target.code, `Deleted Charge Code ${target.code} from system directory.`);
+    return { success: true, message: `Charge Code ${target.code} removed.` };
+  };
+
+  const importChargeCodes = (imported: Partial<WellChargeCode>[]): { success: boolean; importedCount: number; errors: string[] } => {
+    let count = 0;
+    const errors: string[] = [];
+    const newItems: WellChargeCode[] = [];
+
+    imported.forEach((raw, idx) => {
+      const code = (raw.code || '').trim().toUpperCase();
+      if (!code) {
+        errors.push(`Row ${idx + 1}: Missing Charge Code identifier.`);
+        return;
+      }
+      const existing = chargeCodes.some(c => c.code.toUpperCase() === code) || newItems.some(c => c.code.toUpperCase() === code);
+      if (existing) {
+        errors.push(`Row ${idx + 1}: Code "${code}" is a duplicate.`);
+        return;
+      }
+
+      const item: WellChargeCode = {
+        id: `cc-${Date.now()}-${count}-${Math.floor(Math.random() * 1000)}`,
+        code,
+        projectName: raw.projectName || 'Unassigned Campaign Project',
+        wellName: raw.wellName || 'Exploration Well',
+        operator: raw.operator || 'Petronas Carigali',
+        allocatedBudgetUsd: Number(raw.allocatedBudgetUsd) || 1000000,
+        committedCostUsd: Number(raw.committedCostUsd) || 0,
+        actualSpendUsd: Number(raw.actualSpendUsd) || 0,
+        currency: (raw.currency as any) || 'USD',
+        status: raw.status || 'Active',
+        costCenter: raw.costCenter || 'CC-OPERATIONS',
+        costControllerOwner: raw.costControllerOwner || currentUser?.name || 'Cost Controller',
+        description: raw.description || 'Imported via Batch Excel/CSV Data Engine.',
+        validFrom: raw.validFrom || new Date().toISOString().split('T')[0],
+        validTo: raw.validTo || '2026-12-31',
+        createdDate: new Date().toISOString().split('T')[0],
+      };
+      newItems.push(item);
+      count++;
+    });
+
+    if (newItems.length > 0) {
+      setChargeCodes(prev => [...newItems, ...prev]);
+      logAuditTrail('CHARGE_CODES_IMPORTED', 'BATCH_IMPORT', `Imported ${newItems.length} charge codes via bulk file.`);
+    }
+
+    return {
+      success: count > 0,
+      importedCount: count,
+      errors
+    };
+  };
 
   const logAuditTrail = (
     actionType: AuditTrailLog['actionType'],
@@ -1915,10 +2196,10 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       };
     }
 
-    if (target.status === 'Suspended' || target.status === 'Deactivated') {
+    if (target.status !== 'Active Approved') {
       return {
         success: false,
-        message: `Account for ${emailTrim} is suspended or access has been deactivated. Contact the System Administrator.`
+        message: `Account for ${emailTrim} has status '${target.status}'. Access must be granted and approved by the System Administrator before tokens can be dispatched.`
       };
     }
 
@@ -2857,8 +3138,10 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const bulkUpdateStatus = (itemIds: string[], status: MaintenanceStatus, notes?: string) => {
+    const affectedTags: string[] = [];
     setItems(prev => prev.map(item => {
       if (itemIds.includes(item.id)) {
+        affectedTags.push(item.tagNumber);
         const newMaintLog = notes ? {
           id: `maint-bulk-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
           date: new Date().toISOString().split('T')[0],
@@ -2878,6 +3161,114 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
       return item;
     }));
+
+    if (affectedTags.length > 0) {
+      logAuditTrail(
+        'BULK_STATUS_UPDATED',
+        `BATCH-STATUS-${Date.now().toString().slice(-6)}`,
+        `Batch updated status to '${status}' for ${affectedTags.length} tubular items (${affectedTags.slice(0, 5).join(', ')}${affectedTags.length > 5 ? ` +${affectedTags.length - 5} more` : ''}).`,
+        notes
+      );
+    }
+  };
+
+  const bulkUpdateLocation = (itemIds: string[], location: LocationType, rackLocation?: string, notes?: string) => {
+    const affectedTags: string[] = [];
+    setItems(prev => prev.map(item => {
+      if (itemIds.includes(item.id)) {
+        affectedTags.push(item.tagNumber);
+        const updatedQr = `TAG:${item.tagNumber}|HT:${item.heatNumber}|LOC:${(location || 'BASE').split(' ')[0].toUpperCase()}`;
+        const newMaintLog = notes ? {
+          id: `maint-loc-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+          date: new Date().toISOString().split('T')[0],
+          performedBy: currentUser.name,
+          action: 'Recertification' as const,
+          notes: `Batch location relocated to '${location}' [${rackLocation || item.rackLocation || 'Yard'}]. Notes: ${notes}`,
+        } : null;
+
+        const updated = {
+          ...item,
+          currentLocation: location,
+          rackLocation: rackLocation !== undefined ? rackLocation : item.rackLocation,
+          qrCodeData: updatedQr,
+          updatedAt: new Date().toISOString(),
+          maintenanceLogs: newMaintLog ? [newMaintLog, ...item.maintenanceLogs] : item.maintenanceLogs,
+        };
+        saveItemToFirestore(updated);
+        return updated;
+      }
+      return item;
+    }));
+
+    if (affectedTags.length > 0) {
+      logAuditTrail(
+        'BULK_LOCATION_UPDATED',
+        `BATCH-LOC-${Date.now().toString().slice(-6)}`,
+        `Batch relocated ${affectedTags.length} tubular items to '${location}'${rackLocation ? ` (Rack/Bay: ${rackLocation})` : ''} (${affectedTags.slice(0, 5).join(', ')}${affectedTags.length > 5 ? ` +${affectedTags.length - 5} more` : ''}).`,
+        notes
+      );
+    }
+  };
+
+  const bulkUpdateItems = (
+    itemIds: string[], 
+    updates: {
+      status?: MaintenanceStatus;
+      currentLocation?: LocationType;
+      rackLocation?: string;
+      condition?: EquipmentCondition;
+      holeSection?: HoleSection;
+      projectOwner?: string;
+      wellChargeCode?: string;
+    }, 
+    notes?: string
+  ) => {
+    const affectedTags: string[] = [];
+    setItems(prev => prev.map(item => {
+      if (itemIds.includes(item.id)) {
+        affectedTags.push(item.tagNumber);
+        const loc = updates.currentLocation || item.currentLocation;
+        const updatedQr = updates.currentLocation 
+          ? `TAG:${item.tagNumber}|HT:${item.heatNumber}|LOC:${loc.split(' ')[0].toUpperCase()}`
+          : item.qrCodeData;
+
+        const changeDescriptions: string[] = [];
+        if (updates.status) changeDescriptions.push(`Status -> ${updates.status}`);
+        if (updates.currentLocation) changeDescriptions.push(`Location -> ${updates.currentLocation}`);
+        if (updates.rackLocation) changeDescriptions.push(`Rack -> ${updates.rackLocation}`);
+        if (updates.condition) changeDescriptions.push(`Condition -> ${updates.condition}`);
+        if (updates.projectOwner) changeDescriptions.push(`Owner -> ${updates.projectOwner}`);
+        if (updates.wellChargeCode) changeDescriptions.push(`AFE -> ${updates.wellChargeCode}`);
+
+        const newMaintLog = notes || changeDescriptions.length > 0 ? {
+          id: `maint-batch-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+          date: new Date().toISOString().split('T')[0],
+          performedBy: currentUser.name,
+          action: 'Recertification' as const,
+          notes: `Batch modification: ${changeDescriptions.join('; ')}. Notes: ${notes || 'Batch operation'}`,
+        } : null;
+
+        const updated = {
+          ...item,
+          ...updates,
+          qrCodeData: updatedQr,
+          updatedAt: new Date().toISOString(),
+          maintenanceLogs: newMaintLog ? [newMaintLog, ...item.maintenanceLogs] : item.maintenanceLogs,
+        };
+        saveItemToFirestore(updated);
+        return updated;
+      }
+      return item;
+    }));
+
+    if (affectedTags.length > 0) {
+      logAuditTrail(
+        'BULK_ITEMS_UPDATED',
+        `BATCH-MOD-${Date.now().toString().slice(-6)}`,
+        `Batch updated ${affectedTags.length} tubular items (${affectedTags.slice(0, 5).join(', ')}${affectedTags.length > 5 ? ` +${affectedTags.length - 5} more` : ''}). Updates: ${JSON.stringify(updates)}`,
+        notes
+      );
+    }
   };
 
   const transferOwnership = (
@@ -3008,7 +3399,18 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     carrierType: MaterialTransferTicket['carrierType'], 
     carrierName: string, 
     selectedItemIds: { itemId: string; quantityJoints: number }[],
-    notes?: string
+    notes?: string,
+    signOffDetails?: {
+      senderSignature?: string;
+      senderBadgeId?: string;
+      receiverName?: string;
+      receiverRole?: UserRole;
+      receiverSignature?: string;
+      receiverBadgeId?: string;
+      receiverDesignation?: string;
+      authorizationToken?: string;
+      dispatchChecklistCompleted?: boolean;
+    }
   ) => {
     const transferId = `mtt-${Date.now()}`;
     const manifestNumber = `MTT-2026-${Math.floor(100 + Math.random() * 900)}`;
@@ -3024,6 +3426,8 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       };
     });
 
+    const authToken = signOffDetails?.authorizationToken || `AUTH-SIG-${Math.floor(100000 + Math.random() * 900000)}`;
+
     const newTransfer: MaterialTransferTicket = {
       id: transferId,
       manifestNumber,
@@ -3037,8 +3441,21 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       senderUserId: currentUser.id,
       senderName: currentUser.name,
       senderRole: currentUser.role,
+      senderBadgeId: signOffDetails?.senderBadgeId || `STAFF-${currentUser.id.replace('usr-', '')}`,
       senderValidatedAt: new Date().toISOString(),
-      senderSignature: `${currentUser.name} (${currentUser.role})`,
+      senderSignature: signOffDetails?.senderSignature || `${currentUser.name} (${currentUser.role})`,
+      
+      // Dual Digital Sign-off Receiver info
+      receiverUserId: undefined,
+      receiverName: signOffDetails?.receiverName,
+      receiverRole: signOffDetails?.receiverRole || 'Rig Toolpusher / Materials Specialist',
+      receiverBadgeId: signOffDetails?.receiverBadgeId,
+      receiverValidatedAt: signOffDetails?.receiverSignature ? new Date().toISOString() : undefined,
+      receiverSignature: signOffDetails?.receiverSignature,
+      receiverDesignation: signOffDetails?.receiverDesignation,
+
+      authorizationToken: authToken,
+      dispatchChecklistCompleted: signOffDetails?.dispatchChecklistCompleted ?? true,
       notes,
     };
 
@@ -3058,6 +3475,13 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     setTransfers(prev => [newTransfer, ...prev]);
     saveTransferToFirestore(newTransfer);
+
+    logAuditTrail(
+      'MATERIAL_TRANSFER_DISPATCHED',
+      manifestNumber,
+      `Created Material Transfer Ticket ${manifestNumber} from ${origin} to ${destination} via ${carrierName} (${transferItems.length} items). Digital Sign-off: Materials Manager [${newTransfer.senderSignature}] & Receiver [${newTransfer.receiverSignature || 'Pending'}]. Auth Token: ${authToken}`
+    );
+
     return newTransfer;
   };
 
@@ -3521,6 +3945,23 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       createBackupVaultSnapshot,
       downloadBackupFile,
       restoreFromBackupSnapshot,
+      exportEncryptedSnapshot,
+      importEncryptedSnapshot,
+
+      // Notifications Center
+      notifications,
+      unreadNotificationCount,
+      markNotificationRead,
+      markAllNotificationsRead,
+      clearNotification,
+      addSystemNotification,
+
+      // Well & Project Charge Codes (Cost Controller Hub)
+      chargeCodes,
+      addChargeCode,
+      updateChargeCode,
+      deleteChargeCode,
+      importChargeCodes,
 
       availableRoles,
       availableDepartments,
@@ -3538,6 +3979,8 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       bulkAddItems,
       updateItem,
       bulkUpdateStatus,
+      bulkUpdateLocation,
+      bulkUpdateItems,
       transferOwnership,
       deleteItem,
       bulkDeleteItems,

@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import QRCode from 'qrcode';
 import { useDrilling } from '../context/DrillingContext';
 import { TubularItem, InspectionRecord, MaintenanceLog } from '../types/drilling';
+import { AssetLabelModal } from './AssetLabelModal';
 import { 
   X, 
   QrCode, 
@@ -25,7 +27,11 @@ import {
   History,
   FileCheck,
   Truck,
-  ShieldAlert
+  ShieldAlert,
+  Printer,
+  Download,
+  Copy,
+  Check
 } from 'lucide-react';
 
 interface ItemDetailDrawerProps {
@@ -67,6 +73,70 @@ export const ItemDetailDrawer: React.FC<ItemDetailDrawerProps> = ({
   const [maintAction, setMaintAction] = useState<MaintenanceLog['action']>('Washing & Thread Coating');
   const [maintPerformedBy, setMaintPerformedBy] = useState('Base Operations Team');
   const [maintNotes, setMaintNotes] = useState('Freshwater wash & thread storage grease applied.');
+
+  // Asset Label & QR State
+  const [isAssetLabelModalOpen, setIsAssetLabelModalOpen] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState<string>('');
+  const [isCopied, setIsCopied] = useState(false);
+
+  useEffect(() => {
+    if (!item) return;
+    let isMounted = true;
+    const generateQr = async () => {
+      try {
+        const qrPayload = JSON.stringify({
+          tag: item.tagNumber,
+          sn: item.serialNumber,
+          heat: item.heatNumber,
+          od: item.outerDiameter,
+          grade: item.grade,
+          conn: item.connectionType,
+          owner: item.projectOwner || 'Unassigned',
+          afe: item.wellChargeCode || 'N/A',
+          loc: item.currentLocation,
+          rack: item.rackLocation || 'N/A',
+          qrCode: item.qrCodeData,
+        });
+
+        const url = await QRCode.toDataURL(qrPayload, {
+          errorCorrectionLevel: 'H',
+          margin: 1,
+          width: 256,
+          color: {
+            dark: '#000000',
+            light: '#ffffff',
+          },
+        });
+        if (isMounted) {
+          setQrDataUrl(url);
+        }
+      } catch (err) {
+        console.error('Error generating QR code in drawer:', err);
+      }
+    };
+    generateQr();
+    return () => {
+      isMounted = false;
+    };
+  }, [item]);
+
+  const handleDownloadQr = () => {
+    if (!qrDataUrl || !item) return;
+    const link = document.createElement('a');
+    link.href = qrDataUrl;
+    link.download = `QR-${item.tagNumber}-${item.serialNumber}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleCopyQrPayload = () => {
+    if (!item) return;
+    const text = `TAG: ${item.tagNumber} | SN: ${item.serialNumber} | OD: ${item.outerDiameter} | Grade: ${item.grade} | Conn: ${item.connectionType} | Loc: ${item.currentLocation} (${item.rackLocation || 'Yard'})`;
+    navigator.clipboard.writeText(text);
+    setIsCopied(true);
+    setTimeout(() => setIsCopied(false), 2000);
+  };
 
   const handleTransferOwnership = (e: React.FormEvent) => {
     e.preventDefault();
@@ -232,14 +302,71 @@ export const ItemDetailDrawer: React.FC<ItemDetailDrawerProps> = ({
             <div className="space-y-6">
               
               {/* QR Code Tag Card */}
-              <div className="bg-white/5 border border-white/5 rounded-xl p-4 flex items-center justify-between">
-                <div>
-                  <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Field Identification Tag & QR Code</p>
-                  <p className="text-sm font-extrabold text-amber-400 font-mono mt-1">{item.qrCodeData}</p>
-                  <p className="text-[11px] text-gray-400 mt-1">Scan via mobile scanner on cat-walk or supply base yard</p>
+              <div className="bg-white/5 border border-white/10 rounded-xl p-5 space-y-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wider flex items-center space-x-1.5">
+                      <QrCode className="w-3.5 h-3.5" />
+                      <span>Physical Asset Identification Tag & Digital QR</span>
+                    </p>
+                    <p className="text-base font-extrabold text-white font-mono mt-1">{item.qrCodeData}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Adheres to API Spec 5CT / DS-1 pipe stenciling. Scannable with mobile rig scanner or handheld PDA.
+                    </p>
+                  </div>
+                  
+                  {/* Real-time Rendered High-Resolution QR */}
+                  <div className="shrink-0 bg-white p-2 rounded-xl border border-white/20 shadow-lg text-center">
+                    {qrDataUrl ? (
+                      <img src={qrDataUrl} alt={`QR for ${item.tagNumber}`} className="w-20 h-20 object-contain mx-auto" />
+                    ) : (
+                      <div className="w-20 h-20 flex items-center justify-center bg-gray-100 text-black text-[9px] font-mono">
+                        Generating...
+                      </div>
+                    )}
+                    <span className="block text-[8px] font-mono font-bold text-gray-700 mt-1 uppercase">
+                      {item.tagNumber}
+                    </span>
+                  </div>
                 </div>
-                <div className="bg-white p-2 rounded-xl border border-white/10 shadow-md">
-                  <QrCode className="w-12 h-12 text-black" />
+
+                {/* QR Quick Action Buttons */}
+                <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-white/5">
+                  <button
+                    type="button"
+                    onClick={() => setIsAssetLabelModalOpen(true)}
+                    className="px-3.5 py-2 rounded-xl bg-amber-500 text-black hover:bg-amber-400 font-bold text-xs transition flex items-center space-x-1.5 shadow"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>Generate & Print Asset Label</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleDownloadQr}
+                    className="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-200 border border-white/10 font-semibold text-xs transition flex items-center space-x-1.5"
+                  >
+                    <Download className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Download QR (.PNG)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCopyQrPayload}
+                    className="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-200 border border-white/10 font-semibold text-xs transition flex items-center space-x-1.5"
+                  >
+                    {isCopied ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        <span className="text-emerald-400">Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Copy Tag Spec</span>
+                      </>
+                    )}
+                  </button>
                 </div>
               </div>
 
@@ -983,6 +1110,16 @@ export const ItemDetailDrawer: React.FC<ItemDetailDrawerProps> = ({
         </div>
 
       </div>
+
+      {/* Asset Label & QR Code Modal */}
+      {isAssetLabelModalOpen && item && (
+        <AssetLabelModal
+          isOpen={isAssetLabelModalOpen}
+          onClose={() => setIsAssetLabelModalOpen(false)}
+          items={[item]}
+        />
+      )}
+
     </div>
   );
 };
