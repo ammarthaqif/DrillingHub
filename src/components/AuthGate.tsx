@@ -13,8 +13,6 @@ import {
   Shield, 
   Loader2, 
   Send, 
-  Smartphone, 
-  QrCode, 
   KeyRound, 
   UserCheck
 } from 'lucide-react';
@@ -30,13 +28,11 @@ export const AuthGate: React.FC = () => {
     logoutNotice,
   } = useDrilling();
 
-  const [activeTab, setActiveTab] = useState<'credentials' | 'password-setup' | 'authenticator-2fa'>('credentials');
+  const [activeTab, setActiveTab] = useState<'credentials' | 'password-setup'>('credentials');
   
   // Confidential Sign-In State
   const [loginEmail, setLoginEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
-  const [totpCode, setTotpCode] = useState<string>('');
-  const [requiresTotpInput, setRequiresTotpInput] = useState<boolean>(false);
   const [isDispatchingEmail, setIsDispatchingEmail] = useState(false);
 
   // Password Setup / Reset State
@@ -69,7 +65,7 @@ export const AuthGate: React.FC = () => {
             const parsed = safeJsonParse(rawReq, null);
             if (parsed && parsed.requestId === pendingRequestInfo.requestId) {
               if (parsed.status === 'ACCEPTED') {
-                const res = loginUser(pendingRequestInfo.requestingUserId, password, { overrideActiveSession: true, totpCode });
+                const res = loginUser(pendingRequestInfo.requestingUserId, password, { overrideActiveSession: true });
                 if (res.success) {
                   localStorage.removeItem('drillcore_concurrent_login_request');
                   setPendingRequestInfo(null);
@@ -97,7 +93,7 @@ export const AuthGate: React.FC = () => {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [pendingRequestInfo, password, totpCode, loginUser]);
+  }, [pendingRequestInfo, password, loginUser]);
 
   const handleSignIn = (e: React.FormEvent) => {
     e.preventDefault();
@@ -114,13 +110,7 @@ export const AuthGate: React.FC = () => {
       provisionSystemAdminAccount();
     }
 
-    const res = loginUser(emailTrim, password, { totpCode });
-
-    if (res.requiresTotp) {
-      setRequiresTotpInput(true);
-      setErrorMsg(res.message);
-      return;
-    }
+    const res = loginUser(emailTrim, password);
 
     if (res.pendingRequest && res.requestId) {
       setPendingRequestInfo({
@@ -297,18 +287,6 @@ export const AuthGate: React.FC = () => {
             <Key className="w-4 h-4" />
             <span>Password Setup & Reset</span>
           </button>
-
-          <button
-            onClick={() => { setActiveTab('authenticator-2fa'); setErrorMsg(null); setSuccessMsg(null); }}
-            className={`py-3.5 px-5 text-xs font-bold transition flex items-center justify-center space-x-2 border-b-2 whitespace-nowrap flex-1 ${
-              activeTab === 'authenticator-2fa'
-                ? 'border-amber-500 text-amber-400 bg-white/5'
-                : 'border-transparent text-gray-400 hover:text-white hover:bg-white/5'
-            }`}
-          >
-            <Smartphone className="w-4 h-4" />
-            <span>2FA Authenticator</span>
-          </button>
         </div>
 
         {/* Logout Notice Banner */}
@@ -423,23 +401,6 @@ export const AuthGate: React.FC = () => {
                       />
                     </div>
                   </div>
-
-                  {requiresTotpInput && (
-                    <div className="p-3.5 rounded-xl bg-cyan-950/40 border border-cyan-500/30 space-y-2">
-                      <div className="flex items-center space-x-2 text-cyan-300 text-xs font-bold">
-                        <Smartphone className="w-4 h-4 text-cyan-400" />
-                        <span>Authenticator 2FA Verification Code</span>
-                      </div>
-                      <input
-                        type="text"
-                        maxLength={6}
-                        value={totpCode}
-                        onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, ''))}
-                        placeholder="Enter 6-digit code (e.g. 123456)..."
-                        className="w-full bg-black/80 border border-cyan-500/40 rounded-xl px-3 py-2 text-center text-sm tracking-[0.3em] font-mono text-cyan-300 focus:outline-none focus:border-cyan-400"
-                      />
-                    </div>
-                  )}
 
                   <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <button
@@ -559,60 +520,6 @@ export const AuthGate: React.FC = () => {
                     <span>Save Password & Return to Sign In</span>
                   </button>
                 </form>
-              </div>
-            )}
-
-            {/* TAB 3: 2FA Authenticator Info & Setup */}
-            {activeTab === 'authenticator-2fa' && (
-              <div className="p-6 sm:p-8 space-y-5">
-                <div className="p-4 rounded-2xl bg-cyan-950/40 border border-cyan-500/30 space-y-3">
-                  <div className="flex items-center space-x-2">
-                    <div className="w-8 h-8 rounded-lg bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400">
-                      <Smartphone className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-extrabold text-white">Two-Factor Authentication (2FA)</h4>
-                      <p className="text-[11px] text-cyan-300">Time-Based One-Time Password (TOTP) Standard</p>
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-gray-300 leading-relaxed">
-                    Secure your critical drilling inventory account with 2FA using any standard authenticator app (e.g., Microsoft Authenticator, Google Authenticator, Authy).
-                  </p>
-
-                  <div className="p-3 rounded-xl bg-black/60 border border-white/10 font-mono text-xs text-gray-300 space-y-2">
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-400 text-[10px] uppercase">Account Issuer:</span>
-                      <span className="text-amber-400 font-bold">DrillCore OS</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-400 text-[10px] uppercase">Secret Key:</span>
-                      <span className="text-cyan-300 font-bold">JBSWY3DPEHPK3PXP</span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2 pt-2 border-t border-cyan-500/20 text-xs text-gray-300">
-                    <h5 className="font-bold text-white flex items-center gap-1.5">
-                      <QrCode className="w-4 h-4 text-cyan-400" /> Setup Instructions:
-                    </h5>
-                    <ol className="list-decimal list-inside space-y-1 text-gray-400 text-[11px]">
-                      <li>Open your preferred authenticator app on your mobile device.</li>
-                      <li>Tap <strong>+ (Add Account)</strong> and select <strong>Work or other account</strong>.</li>
-                      <li>Enter secret key <code className="text-cyan-300 font-mono font-bold">JBSWY3DPEHPK3PXP</code>.</li>
-                      <li>Use the generated 6-digit code during sign-in verification.</li>
-                    </ol>
-                  </div>
-                </div>
-
-                <div className="pt-2 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('credentials')}
-                    className="px-5 py-2.5 bg-amber-500 text-black font-bold text-xs rounded-xl hover:bg-amber-400 transition"
-                  >
-                    Proceed To Sign-In
-                  </button>
-                </div>
               </div>
             )}
           </>

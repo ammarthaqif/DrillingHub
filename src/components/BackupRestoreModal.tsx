@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useDrilling } from '../context/DrillingContext';
+import { safeJsonParse } from '../utils/safeJson';
 import { DatabaseBackupRecord } from '../types/drilling';
 import { 
   Database, 
@@ -59,15 +60,11 @@ export const BackupRestoreModal: React.FC<BackupRestoreModalProps> = ({ isOpen, 
     setRestoreErrorMsg(null);
     const reader = new FileReader();
     reader.onload = (event) => {
-      try {
-        const parsed = JSON.parse(event.target?.result as string);
-        if (parsed && typeof parsed === 'object') {
-          setUploadedBackupData(parsed);
-        } else {
-          setRestoreErrorMsg('Invalid backup file format.');
-        }
-      } catch (err) {
-        setRestoreErrorMsg('Failed to parse backup JSON file.');
+      const parsed = safeJsonParse(event.target?.result as string, null);
+      if (parsed && typeof parsed === 'object') {
+        setUploadedBackupData(parsed);
+      } else {
+        setRestoreErrorMsg('Invalid backup file format or failed to parse JSON.');
       }
     };
     reader.readAsText(file);
@@ -292,10 +289,10 @@ export const BackupRestoreModal: React.FC<BackupRestoreModalProps> = ({ isOpen, 
                       <button
                         onClick={() => {
                           if (bkp.dataJson) {
-                            try {
-                              const parsed = JSON.parse(bkp.dataJson);
+                            const parsed = safeJsonParse(bkp.dataJson, null);
+                            if (parsed) {
                               executeRestore(parsed);
-                            } catch {
+                            } else {
                               setRestoreErrorMsg('Failed to parse stored snapshot JSON.');
                             }
                           }

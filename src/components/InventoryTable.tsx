@@ -247,10 +247,11 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
             {/* Excel / CSV Bulk Upload Button */}
             <button
               onClick={() => setIsExcelModalOpen(true)}
-              className="px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/30 transition flex items-center space-x-1.5 shrink-0"
+              className="px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/30 transition flex items-center space-x-1.5 shrink-0 shadow-sm"
+              title="Mass upload tubular items via CSV, Excel, or clipboard text"
             >
               <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-              <span>Bulk Upload (Excel)</span>
+              <span>Import CSV / Excel</span>
             </button>
           </div>
 

@@ -531,13 +531,24 @@ export interface RigBackloadList {
   kpiStatus?: BackloadKpiStatus;
 }
 
+export interface AssignedWellInfo {
+  wellName: string;
+  wellCode?: string;
+  wellType?: 'Exploration' | 'Development' | 'Appraisal' | 'Workover / Abandonment';
+  targetDepthFt?: number;
+  rigName?: string;
+  notes?: string;
+}
+
 export interface WellChargeCode {
   id: string;
   code: string; // e.g. "AFE-2026-ALPHA-01", "CC-BARAM-202"
   projectName: string; // e.g. "Offshore Alpha Deepwater Campaign"
   wellName?: string; // e.g. "Well Alpha-01"
+  wellCode?: string; // e.g. "WEL-ALP-01"
   wellId?: string;
   campaignId?: string;
+  assignedWells?: AssignedWellInfo[]; // List of specific wells assigned to this charge code
   operator: string; // e.g. "Petronas Carigali", "Shell", "Chevron"
   allocatedBudgetUsd: number; // e.g. 5,000,000
   committedCostUsd: number; // e.g. 2,100,000

@@ -1,3 +1,5 @@
+import { safeJsonStringify, safeJsonParse } from './safeJson';
+
 /**
  * DrillSpec Cryptographic Utility
  * Handles salted SHA-256 password hashing, payload field encryption,
@@ -111,7 +113,7 @@ export function verifyPassword(password: string, storedHash?: string): boolean {
 export function encryptData<T>(data: T, secretKey: string = DRILLSPEC_FIRESTORE_KEY): string {
   if (data === null || data === undefined) return '';
   try {
-    const jsonStr = JSON.stringify(data);
+    const jsonStr = safeJsonStringify(data);
     const keyChars = secretKey.split('').map(c => c.charCodeAt(0));
     const encryptedBytes: number[] = [];
     
@@ -145,7 +147,7 @@ export function decryptData<T>(encryptedStr: string, fallback: T, secretKey: str
       jsonStr += String.fromCharCode(charCode ^ keyByte);
     }
 
-    return JSON.parse(jsonStr) as T;
+    return safeJsonParse<T>(jsonStr, fallback);
   } catch (err) {
     console.error('Decryption error:', err);
     return fallback;

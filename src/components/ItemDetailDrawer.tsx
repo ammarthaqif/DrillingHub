@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import QRCode from 'qrcode';
+import { safeJsonStringify } from '../utils/safeJson';
 import { useDrilling } from '../context/DrillingContext';
 import { TubularItem, InspectionRecord, MaintenanceLog } from '../types/drilling';
 import { AssetLabelModal } from './AssetLabelModal';
@@ -84,7 +85,7 @@ export const ItemDetailDrawer: React.FC<ItemDetailDrawerProps> = ({
     let isMounted = true;
     const generateQr = async () => {
       try {
-        const qrPayload = JSON.stringify({
+        const qrPayload = safeJsonStringify({
           tag: item.tagNumber,
           sn: item.serialNumber,
           heat: item.heatNumber,

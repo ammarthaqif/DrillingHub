@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import QRCode from 'qrcode';
+import { safeJsonStringify } from '../utils/safeJson';
 import { TubularItem } from '../types/drilling';
 import { useDrilling } from '../context/DrillingContext';
 import { 
@@ -61,7 +62,7 @@ export const AssetLabelModal: React.FC<AssetLabelModalProps> = ({
       const urls: Record<string, string> = {};
       for (const itm of items) {
         try {
-          const qrPayload = JSON.stringify({
+          const qrPayload = safeJsonStringify({
             tag: itm.tagNumber,
             sn: itm.serialNumber,
             heat: itm.heatNumber,

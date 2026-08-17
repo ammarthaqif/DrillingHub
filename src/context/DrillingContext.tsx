@@ -28,6 +28,7 @@ import {
   ItemPhotoRecord,
   DatabaseBackupRecord,
   WellChargeCode,
+  AssignedWellInfo,
   SystemNotification
 } from '../types/drilling';
 import { 
@@ -292,6 +293,21 @@ interface DrillingContextType {
   updateChargeCode: (id: string, updates: Partial<WellChargeCode>) => { success: boolean; message: string };
   deleteChargeCode: (id: string) => { success: boolean; message: string };
   importChargeCodes: (codes: Partial<WellChargeCode>[]) => { success: boolean; importedCount: number; errors: string[] };
+  assignWellToChargeCode: (chargeCodeId: string, wellInfo: AssignedWellInfo) => { success: boolean; message: string };
+  getChargeCodeForWell: (wellNameOrCode: string) => WellChargeCode | undefined;
+  getAllAssignedWells: () => Array<{
+    wellName: string;
+    wellCode?: string;
+    wellType?: WellDefinition['type'];
+    afeCode: string;
+    operator: string;
+    budgetUsd: number;
+    projectName: string;
+    chargeCodeId: string;
+    status: string;
+    targetDepthFt?: number;
+    rigName?: string;
+  }>;
 
   // Filters & Views
   searchQuery: string;
@@ -340,7 +356,7 @@ export const DEFAULT_ROLE_MODULE_PERMISSIONS: Record<string, string[]> = {
     'movement', 'costController', 'audit', 'admin'
   ],
   'Drilling Engineer': [
-    'dashboard', 'inventory', 'materialsManagement', 'drillingEngineer', 'holeSection', 'surplus', 'costController'
+    'dashboard', 'inventory', 'materialsManagement', 'drillingEngineer', 'holeSection', 'surplus'
   ],
   'Cost Controller': [
     'dashboard', 'inventory', 'materialsManagement', 'movement', 'checkAndBalance', 'surplus', 'costController', 'audit'
@@ -361,7 +377,7 @@ export const DEFAULT_ROLE_MODULE_PERMISSIONS: Record<string, string[]> = {
     'dashboard', 'inventory', 'checkAndBalance', 'audit'
   ],
   'Auditor / Management': [
-    'dashboard', 'inventory', 'audit', 'checkAndBalance', 'costController'
+    'dashboard', 'inventory', 'audit', 'checkAndBalance'
   ]
 };
 
@@ -507,7 +523,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'drillcore_concurrent_login_request' && e.newValue) {
         try {
-          const parsed: ConcurrentLoginRequestData = JSON.parse(e.newValue);
+          const parsed = safeJsonParse<ConcurrentLoginRequestData | null>(e.newValue, null);
           if (parsed && parsed.status === 'PENDING' && isAuthenticated) {
             setPendingLoginRequest(parsed);
           }
@@ -539,8 +555,8 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     try {
       const rawReq = localStorage.getItem('drillcore_concurrent_login_request');
       if (rawReq) {
-        const parsed: ConcurrentLoginRequestData = JSON.parse(rawReq);
-        if (parsed.requestId === reqId) {
+        const parsed = safeJsonParse<ConcurrentLoginRequestData | null>(rawReq, null);
+        if (parsed && parsed.requestId === reqId) {
           parsed.status = 'ACCEPTED';
           localStorage.setItem('drillcore_concurrent_login_request', safeJsonStringify(parsed));
           if (typeof BroadcastChannel !== 'undefined') {
@@ -614,32 +630,13 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const providedKey = (accessKey || '').trim();
     if (user.passwordHash) {
       if (!verifyPassword(providedKey, user.passwordHash)) {
-        return { success: false, message: 'Invalid password. If you forgot your password or are logging in for the first time, please click "Authorization Token & Password" to set your custom password.' };
+        return { success: false, message: 'Invalid password. If you forgot your password or are logging in for the first time, please click "Password Setup & Reset" to set your custom password.' };
       }
     } else {
       return { 
         success: false, 
-        message: 'Custom password not set. First-time users must click the "Authorization Token & Password" tab to verify their 6-digit token and set a custom password.' 
+        message: 'Custom password not set. First-time users must click the "Password Setup & Reset" tab to verify their 6-digit token and set a custom password.' 
       };
-    }
-
-    // Microsoft Authenticator 2FA Check
-    if (user.msAuthenticatorEnabled) {
-      const totp = (options?.totpCode || '').trim();
-      if (!totp) {
-        return {
-          success: false,
-          requiresTotp: true,
-          message: 'Microsoft Authenticator 2FA Verification Required. Enter the 6-digit code from your Microsoft Authenticator App.'
-        };
-      }
-      if (!verifyMsTotpCode(user.id, totp)) {
-        return {
-          success: false,
-          requiresTotp: true,
-          message: 'Invalid 6-digit Microsoft Authenticator code. Please check your app and enter a valid code.'
-        };
-      }
     }
 
     // Concurrent Single Active Session Check
@@ -1611,6 +1608,196 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
   };
 
+  const assignWellToChargeCode = (chargeCodeId: string, wellInfo: AssignedWellInfo): { success: boolean; message: string } => {
+    if (!wellInfo.wellName || !wellInfo.wellName.trim()) {
+      return { success: false, message: 'Well Name is required for charge code assignment.' };
+    }
+    const cleanWellName = wellInfo.wellName.trim();
+    const target = chargeCodes.find(c => c.id === chargeCodeId || c.code.toUpperCase() === chargeCodeId.toUpperCase());
+    if (!target) {
+      return { success: false, message: `Charge Code "${chargeCodeId}" not found in system.` };
+    }
+
+    const currentAssigned = target.assignedWells || [];
+    const isAlreadyAssigned = currentAssigned.some(w => (typeof w === 'string' ? w : w.wellName).toLowerCase() === cleanWellName.toLowerCase());
+    
+    let updatedAssigned: AssignedWellInfo[];
+    if (isAlreadyAssigned) {
+      updatedAssigned = currentAssigned.map(w => {
+        const name = typeof w === 'string' ? w : w.wellName;
+        if (name.toLowerCase() === cleanWellName.toLowerCase()) {
+          return {
+            wellName: cleanWellName,
+            wellCode: wellInfo.wellCode || (typeof w === 'object' ? w.wellCode : undefined),
+            wellType: wellInfo.wellType || (typeof w === 'object' ? w.wellType : undefined),
+            targetDepthFt: wellInfo.targetDepthFt || (typeof w === 'object' ? w.targetDepthFt : undefined),
+            rigName: wellInfo.rigName || (typeof w === 'object' ? w.rigName : undefined),
+            notes: wellInfo.notes || (typeof w === 'object' ? w.notes : undefined)
+          };
+        }
+        return typeof w === 'string' ? { wellName: w } : w;
+      });
+    } else {
+      updatedAssigned = [
+        ...currentAssigned.map(w => typeof w === 'string' ? { wellName: w } : w),
+        {
+          wellName: cleanWellName,
+          wellCode: wellInfo.wellCode,
+          wellType: wellInfo.wellType,
+          targetDepthFt: wellInfo.targetDepthFt,
+          rigName: wellInfo.rigName,
+          notes: wellInfo.notes
+        }
+      ];
+    }
+
+    setChargeCodes(prev => prev.map(c => {
+      if (c.id === target.id) {
+        return {
+          ...c,
+          wellName: c.wellName || cleanWellName,
+          wellCode: c.wellCode || wellInfo.wellCode,
+          assignedWells: updatedAssigned,
+          updatedAt: new Date().toISOString()
+        };
+      }
+      return c;
+    }));
+
+    logAuditTrail(
+      'CHARGE_CODE_UPDATED',
+      target.code,
+      `Assigned Well "${cleanWellName}" to Charge Code ${target.code} (${target.projectName}).`
+    );
+
+    addSystemNotification({
+      title: 'Well Charge Code Assigned',
+      message: `Well "${cleanWellName}" successfully linked to AFE Charge Code ${target.code} by ${currentUser?.name || 'Cost Controller'}.`,
+      category: 'FINANCE_COST',
+      severity: 'info',
+      referenceId: target.code,
+      linkNav: 'costController'
+    });
+
+    return { 
+      success: true, 
+      message: `Well "${cleanWellName}" successfully assigned to Charge Code ${target.code}.` 
+    };
+  };
+
+  const getChargeCodeForWell = (wellNameOrCode: string): WellChargeCode | undefined => {
+    if (!wellNameOrCode || typeof wellNameOrCode !== 'string') return undefined;
+    const query = wellNameOrCode.trim().toLowerCase();
+    if (!query) return undefined;
+
+    // 1. Direct match on wellName or wellCode or primary fields
+    const directMatch = chargeCodes.find(c => {
+      if (c.wellName && c.wellName.toLowerCase().trim() === query) return true;
+      if (c.wellCode && c.wellCode.toLowerCase().trim() === query) return true;
+      if (c.assignedWells && Array.isArray(c.assignedWells)) {
+        return c.assignedWells.some(w => {
+          const wName = typeof w === 'string' ? w : w.wellName;
+          const wCode = typeof w === 'object' ? w.wellCode : undefined;
+          return (wName && wName.toLowerCase().trim() === query) || (wCode && wCode.toLowerCase().trim() === query);
+        });
+      }
+      return false;
+    });
+    if (directMatch) return directMatch;
+
+    // 2. Fuzzy / Substring match (e.g., "Well Alpha-01" matches "Well Alpha-01 (Conductor)" or "Alpha-01")
+    const fuzzyMatch = chargeCodes.find(c => {
+      const checkMatch = (targetStr?: string) => {
+        if (!targetStr) return false;
+        const lower = targetStr.toLowerCase().trim();
+        return lower.includes(query) || query.includes(lower);
+      };
+
+      if (checkMatch(c.wellName)) return true;
+      if (checkMatch(c.wellCode)) return true;
+      if (c.assignedWells && Array.isArray(c.assignedWells)) {
+        return c.assignedWells.some(w => {
+          const wName = typeof w === 'string' ? w : w.wellName;
+          const wCode = typeof w === 'object' ? w.wellCode : undefined;
+          return checkMatch(wName) || checkMatch(wCode);
+        });
+      }
+      return false;
+    });
+
+    return fuzzyMatch;
+  };
+
+  const getAllAssignedWells = () => {
+    const list: Array<{
+      wellName: string;
+      wellCode?: string;
+      wellType?: WellDefinition['type'];
+      afeCode: string;
+      operator: string;
+      budgetUsd: number;
+      projectName: string;
+      chargeCodeId: string;
+      status: string;
+      targetDepthFt?: number;
+      rigName?: string;
+    }> = [];
+
+    const seen = new Set<string>();
+
+    chargeCodes.forEach(cc => {
+      // 1. Primary well in charge code
+      if (cc.wellName) {
+        const key = `${cc.wellName.toLowerCase()}_${cc.code.toLowerCase()}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          list.push({
+            wellName: cc.wellName,
+            wellCode: cc.wellCode,
+            afeCode: cc.code,
+            operator: cc.operator,
+            budgetUsd: cc.allocatedBudgetUsd,
+            projectName: cc.projectName,
+            chargeCodeId: cc.id,
+            status: cc.status
+          });
+        }
+      }
+
+      // 2. Assigned wells list
+      if (Array.isArray(cc.assignedWells)) {
+        cc.assignedWells.forEach(w => {
+          const wName = typeof w === 'string' ? w : w.wellName;
+          const wCode = typeof w === 'object' ? w.wellCode : undefined;
+          const wType = typeof w === 'object' ? w.wellType : undefined;
+          const wDepth = typeof w === 'object' ? w.targetDepthFt : undefined;
+          const wRig = typeof w === 'object' ? w.rigName : undefined;
+          if (wName) {
+            const key = `${wName.toLowerCase()}_${cc.code.toLowerCase()}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              list.push({
+                wellName: wName,
+                wellCode: wCode,
+                wellType: wType,
+                afeCode: cc.code,
+                operator: cc.operator,
+                budgetUsd: cc.allocatedBudgetUsd,
+                projectName: cc.projectName,
+                chargeCodeId: cc.id,
+                status: cc.status,
+                targetDepthFt: wDepth,
+                rigName: wRig
+              });
+            }
+          }
+        });
+      }
+    });
+
+    return list;
+  };
+
   const logAuditTrail = (
     actionType: AuditTrailLog['actionType'],
     referenceId: string,
@@ -1995,7 +2182,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       } else {
         // Seed initial items to Firestore if empty
         INITIAL_ITEMS.forEach((it) => {
-          setDoc(doc(db, 'items', it.id), it).catch(() => {});
+          setDoc(doc(db, 'items', it.id), safeClone(it)).catch(() => {});
         });
       }
     }, (err) => {
@@ -2012,7 +2199,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setTransfers(fetchedTransfers);
       } else {
         INITIAL_TRANSFERS.forEach((tr) => {
-          setDoc(doc(db, 'transfers', tr.id), tr).catch(() => {});
+          setDoc(doc(db, 'transfers', tr.id), safeClone(tr)).catch(() => {});
         });
       }
     }, (err) => {
@@ -2029,7 +2216,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setAllUsers(fetchedUsers);
       } else {
         INITIAL_USERS.forEach((usr) => {
-          setDoc(doc(db, 'users', usr.id), { ...usr, status: 'Active Approved', isCorporateVerified: true }).catch(() => {});
+          setDoc(doc(db, 'users', usr.id), safeClone({ ...usr, status: 'Active Approved', isCorporateVerified: true })).catch(() => {});
         });
       }
     }, (err) => {
@@ -2058,7 +2245,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           }
         });
       } else {
-        setDoc(doc(db, 'config', 'global_settings'), DEFAULT_CONFIG).catch(() => {});
+        setDoc(doc(db, 'config', 'global_settings'), safeClone(DEFAULT_CONFIG)).catch(() => {});
       }
     }, (err) => {
       console.warn('Firestore config sync fallback:', err);
@@ -3265,7 +3452,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       logAuditTrail(
         'BULK_ITEMS_UPDATED',
         `BATCH-MOD-${Date.now().toString().slice(-6)}`,
-        `Batch updated ${affectedTags.length} tubular items (${affectedTags.slice(0, 5).join(', ')}${affectedTags.length > 5 ? ` +${affectedTags.length - 5} more` : ''}). Updates: ${JSON.stringify(updates)}`,
+        `Batch updated ${affectedTags.length} tubular items (${affectedTags.slice(0, 5).join(', ')}${affectedTags.length > 5 ? ` +${affectedTags.length - 5} more` : ''}). Updates: ${safeJsonStringify(updates)}`,
         notes
       );
     }
@@ -3737,7 +3924,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     try {
       const saved = localStorage.getItem('drillcore_role_module_permissions');
       if (saved) {
-        return JSON.parse(saved);
+        return safeJsonParse(saved, DEFAULT_ROLE_MODULE_PERMISSIONS);
       }
     } catch (e) {
       console.warn('Failed to parse role module permissions from localStorage', e);
@@ -3962,6 +4149,9 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       updateChargeCode,
       deleteChargeCode,
       importChargeCodes,
+      assignWellToChargeCode,
+      getChargeCodeForWell,
+      getAllAssignedWells,
 
       availableRoles,
       availableDepartments,

@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useDrilling } from '../context/DrillingContext';
-import { WellChargeCode, TubularItem } from '../types/drilling';
+import { safeJsonParse } from '../utils/safeJson';
+import { WellChargeCode, TubularItem, AssignedWellInfo, WellDefinition } from '../types/drilling';
 import { 
   DollarSign, 
   TrendingUp, 
@@ -19,12 +20,18 @@ import {
   Download, 
   Upload, 
   ShieldCheck, 
+  ShieldAlert,
   Calculator, 
   Receipt, 
   ArrowUpRight, 
   Briefcase,
   Sparkles,
-  ChevronRight
+  ChevronRight,
+  Link2,
+  Check,
+  Zap,
+  Info,
+  X
 } from 'lucide-react';
 
 interface CostControllerHubProps {
@@ -39,12 +46,17 @@ export const CostControllerHub: React.FC<CostControllerHubProps> = ({ onSelectIt
     updateChargeCode, 
     deleteChargeCode, 
     importChargeCodes, 
+    assignWellToChargeCode,
+    getChargeCodeForWell,
+    getAllAssignedWells,
     items, 
     campaigns, 
     currentUser 
   } = useDrilling();
 
-  const [activeSubTab, setActiveSubTab] = useState<'afeOverview' | 'inventoryValuation' | 'costAllocation' | 'savingsAnalysis'>('afeOverview');
+  const isAuthorized = currentUser?.role === 'Cost Controller' || currentUser?.role === 'System Administrator';
+
+  const [activeSubTab, setActiveSubTab] = useState<'afeOverview' | 'wellAssignments' | 'inventoryValuation' | 'costAllocation' | 'savingsAnalysis'>('afeOverview');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>('ALL');
   const [selectedOperatorFilter, setSelectedOperatorFilter] = useState<string>('ALL');
@@ -56,11 +68,25 @@ export const CostControllerHub: React.FC<CostControllerHubProps> = ({ onSelectIt
   const [importJsonText, setImportJsonText] = useState('');
   const [importFeedback, setImportFeedback] = useState<{ success: boolean; message: string } | null>(null);
 
+  // Quick Assign Well Modal State
+  const [isAssignWellModalOpen, setIsAssignWellModalOpen] = useState(false);
+  const [assignWellForm, setAssignWellForm] = useState({
+    chargeCodeId: '',
+    wellName: '',
+    wellCode: '',
+    wellType: 'Development' as WellDefinition['type'],
+    targetDepthFt: '',
+    rigName: 'Offshore Rig Alpha (Deepwater Champion)',
+    notes: ''
+  });
+  const [assignFeedback, setAssignFeedback] = useState<{ success: boolean; message: string } | null>(null);
+
   // Form State
   const [formData, setFormData] = useState({
     code: '',
     projectName: '',
     wellName: '',
+    wellCode: '',
     operator: 'Petronas Carigali',
     allocatedBudgetUsd: 5000000,
     committedCostUsd: 0,
@@ -75,6 +101,11 @@ export const CostControllerHub: React.FC<CostControllerHubProps> = ({ onSelectIt
   });
 
   const [formError, setFormError] = useState<string | null>(null);
+
+  // Assigned wells aggregated directory
+  const assignedWellsDirectory = useMemo(() => {
+    return getAllAssignedWells ? getAllAssignedWells() : [];
+  }, [chargeCodes, getAllAssignedWells]);
 
   // Aggregated Cost Metrics
   const costMetrics = useMemo(() => {
@@ -128,15 +159,34 @@ export const CostControllerHub: React.FC<CostControllerHubProps> = ({ onSelectIt
         const matchCode = c.code.toLowerCase().includes(q);
         const matchProject = c.projectName.toLowerCase().includes(q);
         const matchWell = c.wellName?.toLowerCase().includes(q) || false;
+        const matchAssignedWell = c.assignedWells?.some(w => {
+          const name = typeof w === 'string' ? w : w.wellName;
+          return name.toLowerCase().includes(q);
+        }) || false;
         const matchOperator = c.operator.toLowerCase().includes(q);
         const matchCostCenter = c.costCenter.toLowerCase().includes(q);
-        if (!matchCode && !matchProject && !matchWell && !matchOperator && !matchCostCenter) return false;
+        if (!matchCode && !matchProject && !matchWell && !matchAssignedWell && !matchOperator && !matchCostCenter) return false;
       }
       if (selectedStatusFilter !== 'ALL' && c.status !== selectedStatusFilter) return false;
       if (selectedOperatorFilter !== 'ALL' && c.operator !== selectedOperatorFilter) return false;
       return true;
     });
   }, [chargeCodes, searchQuery, selectedStatusFilter, selectedOperatorFilter]);
+
+  // Filtered Assigned Wells Directory
+  const filteredAssignedWells = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    return assignedWellsDirectory.filter(w => {
+      if (!q) return true;
+      return (
+        w.wellName.toLowerCase().includes(q) ||
+        (w.wellCode && w.wellCode.toLowerCase().includes(q)) ||
+        w.afeCode.toLowerCase().includes(q) ||
+        w.operator.toLowerCase().includes(q) ||
+        w.projectName.toLowerCase().includes(q)
+      );
+    });
+  }, [assignedWellsDirectory, searchQuery]);
 
   // Handle open modal for create / edit
   const handleOpenModal = (codeToEdit?: WellChargeCode) => {
@@ -147,6 +197,7 @@ export const CostControllerHub: React.FC<CostControllerHubProps> = ({ onSelectIt
         code: codeToEdit.code,
         projectName: codeToEdit.projectName,
         wellName: codeToEdit.wellName || '',
+        wellCode: codeToEdit.wellCode || '',
         operator: codeToEdit.operator,
         allocatedBudgetUsd: codeToEdit.allocatedBudgetUsd,
         committedCostUsd: codeToEdit.committedCostUsd,
@@ -165,6 +216,7 @@ export const CostControllerHub: React.FC<CostControllerHubProps> = ({ onSelectIt
         code: `AFE-2026-CAMP-${Math.floor(100 + Math.random() * 900)}`,
         projectName: '',
         wellName: '',
+        wellCode: '',
         operator: 'Petronas Carigali',
         allocatedBudgetUsd: 4500000,
         committedCostUsd: 0,
@@ -181,6 +233,47 @@ export const CostControllerHub: React.FC<CostControllerHubProps> = ({ onSelectIt
     setIsModalOpen(true);
   };
 
+  const handleOpenAssignModal = (targetChargeCodeId?: string, defaultWellName?: string) => {
+    setAssignFeedback(null);
+    setAssignWellForm({
+      chargeCodeId: targetChargeCodeId || (chargeCodes[0]?.id || ''),
+      wellName: defaultWellName || '',
+      wellCode: defaultWellName ? `WEL-${defaultWellName.replace(/\s+/g, '-').toUpperCase()}` : '',
+      wellType: 'Development',
+      targetDepthFt: '',
+      rigName: 'Offshore Rig Alpha (Deepwater Champion)',
+      notes: ''
+    });
+    setIsAssignWellModalOpen(true);
+  };
+
+  const handleExecuteWellAssignment = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!assignWellForm.chargeCodeId || !assignWellForm.wellName.trim()) {
+      setAssignFeedback({ success: false, message: 'Please select a Charge Code and specify the Well Name.' });
+      return;
+    }
+
+    const res = assignWellToChargeCode(assignWellForm.chargeCodeId, {
+      wellName: assignWellForm.wellName.trim(),
+      wellCode: assignWellForm.wellCode.trim() || undefined,
+      wellType: assignWellForm.wellType,
+      targetDepthFt: assignWellForm.targetDepthFt ? parseFloat(assignWellForm.targetDepthFt) : undefined,
+      rigName: assignWellForm.rigName,
+      notes: assignWellForm.notes
+    });
+
+    if (res.success) {
+      setAssignFeedback({ success: true, message: res.message });
+      setTimeout(() => {
+        setIsAssignWellModalOpen(false);
+        setAssignFeedback(null);
+      }, 1200);
+    } else {
+      setAssignFeedback({ success: false, message: res.message });
+    }
+  };
+
   const handleSaveChargeCode = (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
@@ -194,15 +287,33 @@ export const CostControllerHub: React.FC<CostControllerHubProps> = ({ onSelectIt
       return;
     }
 
+    const payload: Partial<WellChargeCode> = {
+      code: formData.code.trim().toUpperCase(),
+      projectName: formData.projectName.trim(),
+      wellName: formData.wellName.trim() || undefined,
+      wellCode: formData.wellCode.trim() || undefined,
+      operator: formData.operator,
+      allocatedBudgetUsd: Number(formData.allocatedBudgetUsd) || 0,
+      committedCostUsd: Number(formData.committedCostUsd) || 0,
+      actualSpendUsd: Number(formData.actualSpendUsd) || 0,
+      currency: formData.currency,
+      status: formData.status,
+      costCenter: formData.costCenter.trim().toUpperCase(),
+      costControllerOwner: formData.costControllerOwner,
+      description: formData.description,
+      validFrom: formData.validFrom,
+      validTo: formData.validTo,
+    };
+
     if (editingCode) {
-      const res = updateChargeCode(editingCode.id, formData);
+      const res = updateChargeCode(editingCode.id, payload);
       if (res.success) {
         setIsModalOpen(false);
       } else {
         setFormError(res.message);
       }
     } else {
-      const res = addChargeCode(formData);
+      const res = addChargeCode(payload as any);
       if (res.success) {
         setIsModalOpen(false);
       } else {
@@ -248,27 +359,67 @@ export const CostControllerHub: React.FC<CostControllerHubProps> = ({ onSelectIt
   };
 
   const handleBulkImportJson = () => {
-    try {
-      const parsed = JSON.parse(importJsonText);
-      if (!Array.isArray(parsed)) {
-        setImportFeedback({ success: false, message: 'Invalid JSON: Expected an array of charge code records.' });
-        return;
-      }
-      const res = importChargeCodes(parsed);
-      if (res.success) {
-        setImportFeedback({ success: true, message: `Successfully imported ${res.importedCount} charge codes.` });
-        setTimeout(() => {
-          setIsImportModalOpen(false);
-          setImportFeedback(null);
-          setImportJsonText('');
-        }, 1500);
-      } else {
-        setImportFeedback({ success: false, message: `Import error: ${res.errors.join('; ')}` });
-      }
-    } catch (err: any) {
-      setImportFeedback({ success: false, message: `JSON Parse error: ${err.message}` });
+    const parsed = safeJsonParse(importJsonText, null);
+    if (!parsed || !Array.isArray(parsed)) {
+      setImportFeedback({ success: false, message: 'Invalid JSON: Expected an array of charge code records.' });
+      return;
+    }
+    const res = importChargeCodes(parsed);
+    if (res.success) {
+      setImportFeedback({ success: true, message: `Successfully imported ${res.importedCount} charge codes.` });
+      setTimeout(() => {
+        setIsImportModalOpen(false);
+        setImportFeedback(null);
+        setImportJsonText('');
+      }, 1500);
+    } else {
+      setImportFeedback({ success: false, message: `Import error: ${res.errors.join('; ')}` });
     }
   };
+
+  // RBAC Unauthorized Screen
+  if (!isAuthorized) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center p-6">
+        <div className="bg-[#121319] border border-rose-500/30 rounded-3xl p-8 sm:p-10 max-w-lg w-full text-center space-y-5 shadow-2xl shadow-rose-950/20">
+          <div className="w-16 h-16 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-400 flex items-center justify-center mx-auto">
+            <ShieldAlert className="w-8 h-8" />
+          </div>
+          <div className="space-y-2">
+            <span className="px-3 py-1 text-[11px] font-bold rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 uppercase tracking-wider font-mono">
+              Access Restricted
+            </span>
+            <h2 className="text-2xl font-extrabold text-white">Cost Controller Hub</h2>
+            <p className="text-xs text-gray-400 leading-relaxed">
+              This module is exclusively accessible by <strong>Cost Controller Personnel</strong> and <strong>System Administrators</strong> only.
+            </p>
+          </div>
+
+          <div className="p-3.5 bg-black/50 border border-white/10 rounded-2xl text-xs space-y-1 text-left">
+            <div className="flex justify-between text-gray-400">
+              <span>Logged In User:</span>
+              <span className="text-white font-semibold">{currentUser?.name || 'Unknown'}</span>
+            </div>
+            <div className="flex justify-between text-gray-400">
+              <span>Current Role:</span>
+              <span className="text-amber-400 font-semibold">{currentUser?.role || 'Unassigned'}</span>
+            </div>
+            <div className="flex justify-between text-gray-400">
+              <span>Required Role:</span>
+              <span className="text-emerald-400 font-semibold">Cost Controller / System Administrator</span>
+            </div>
+          </div>
+
+          <button
+            onClick={() => onNavigateTab?.('dashboard')}
+            className="w-full py-3 bg-white/10 hover:bg-white/15 text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-2"
+          >
+            Return to Operational Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -281,27 +432,35 @@ export const CostControllerHub: React.FC<CostControllerHubProps> = ({ onSelectIt
               <Receipt className="w-7 h-7" />
             </div>
             <div className="space-y-1">
-              <div className="flex items-center space-x-3">
+              <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
                   Cost Controller & AFE Financial Hub
                 </h1>
-                <span className="px-3 py-0.5 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  ERP & Cost Control
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase tracking-wider">
+                  Cost Controller & Admin Exclusive
                 </span>
               </div>
               <p className="text-xs sm:text-sm text-gray-400 max-w-2xl leading-relaxed">
-                Track AFE well charge codes, inventory asset valuation, capital expenditure commitments, and surplus reutilization cost savings across all drilling campaigns.
+                Assign AFE charge codes for respective wells, establish automated campaign charge-code population, and monitor inventory asset valuations and capital spend.
               </p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
             <button
+              onClick={() => handleOpenAssignModal()}
+              className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-amber-500/20 transition flex items-center space-x-2"
+            >
+              <Link2 className="w-4 h-4" />
+              <span>Assign Well Charge Code</span>
+            </button>
+
+            <button
               onClick={() => handleOpenModal()}
               className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-emerald-500/20 transition flex items-center space-x-2"
             >
               <Plus className="w-4 h-4" />
-              <span>Create AFE Charge Code</span>
+              <span>Create AFE Code</span>
             </button>
 
             <button
@@ -341,10 +500,23 @@ export const CostControllerHub: React.FC<CostControllerHubProps> = ({ onSelectIt
 
           <div className="bg-black/50 border border-white/10 rounded-2xl p-4 space-y-1">
             <div className="flex items-center justify-between text-xs text-gray-400 font-semibold">
-              <span>Actual Spend & Committed</span>
-              <TrendingUp className="w-4 h-4 text-amber-400" />
+              <span>Assigned Wells (Auto-Populate)</span>
+              <Layers className="w-4 h-4 text-amber-400" />
             </div>
             <div className="text-2xl font-extrabold text-amber-400 tracking-tight">
+              {assignedWellsDirectory.length} Wells
+            </div>
+            <div className="text-[11px] text-emerald-400 font-medium">
+              <span>✓ Auto-populated on Campaign Creation</span>
+            </div>
+          </div>
+
+          <div className="bg-black/50 border border-white/10 rounded-2xl p-4 space-y-1">
+            <div className="flex items-center justify-between text-xs text-gray-400 font-semibold">
+              <span>Actual Spend & Committed</span>
+              <TrendingUp className="w-4 h-4 text-cyan-400" />
+            </div>
+            <div className="text-2xl font-extrabold text-cyan-400 tracking-tight">
               ${(costMetrics.totalActual / 1000000).toFixed(2)}M
             </div>
             <div className="text-[11px] text-gray-400">
@@ -354,20 +526,7 @@ export const CostControllerHub: React.FC<CostControllerHubProps> = ({ onSelectIt
 
           <div className="bg-black/50 border border-white/10 rounded-2xl p-4 space-y-1">
             <div className="flex items-center justify-between text-xs text-gray-400 font-semibold">
-              <span>Total Inventory Asset Value</span>
-              <Layers className="w-4 h-4 text-cyan-400" />
-            </div>
-            <div className="text-2xl font-extrabold text-cyan-300 tracking-tight">
-              ${(costMetrics.totalBookValue / 1000000).toFixed(2)}M
-            </div>
-            <div className="text-[11px] text-gray-400">
-              <span>{items.length} Tracked OCTG & Tool Assets</span>
-            </div>
-          </div>
-
-          <div className="bg-black/50 border border-white/10 rounded-2xl p-4 space-y-1">
-            <div className="flex items-center justify-between text-xs text-gray-400 font-semibold">
-              <span>Surplus Reutilization Savings</span>
+              <span>Surplus Cost Avoidance</span>
               <Sparkles className="w-4 h-4 text-purple-400" />
             </div>
             <div className="text-2xl font-extrabold text-purple-300 tracking-tight">
@@ -392,6 +551,18 @@ export const CostControllerHub: React.FC<CostControllerHubProps> = ({ onSelectIt
         >
           <Receipt className="w-4 h-4" />
           <span>AFE Charge Codes Directory ({chargeCodes.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveSubTab('wellAssignments')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2 whitespace-nowrap ${
+            activeSubTab === 'wellAssignments'
+              ? 'bg-emerald-500 text-black shadow-md'
+              : 'text-gray-400 hover:text-white hover:bg-white/5'
+          }`}
+        >
+          <Layers className="w-4 h-4" />
+          <span>Well & AFE Charge Code Assignment Matrix ({assignedWellsDirectory.length})</span>
         </button>
 
         <button
@@ -470,7 +641,7 @@ export const CostControllerHub: React.FC<CostControllerHubProps> = ({ onSelectIt
                 <thead className="bg-black/60 text-gray-400 uppercase text-[10px] tracking-wider border-b border-white/10 font-mono">
                   <tr>
                     <th className="px-4 py-3">AFE Code & Cost Center</th>
-                    <th className="px-4 py-3">Project & Well Linkage</th>
+                    <th className="px-4 py-3">Project & Assigned Well(s)</th>
                     <th className="px-4 py-3">Operator</th>
                     <th className="px-4 py-3">Allocated Budget</th>
                     <th className="px-4 py-3">Actual Spend / Committed</th>
@@ -504,7 +675,21 @@ export const CostControllerHub: React.FC<CostControllerHubProps> = ({ onSelectIt
                           <td className="px-4 py-3">
                             <div className="font-semibold text-white">{code.projectName}</div>
                             {code.wellName && (
-                              <div className="text-[11px] text-amber-400 font-mono">{code.wellName}</div>
+                              <div className="text-[11px] text-amber-400 font-mono flex items-center gap-1 mt-0.5">
+                                <span>📍 {code.wellName}</span>
+                              </div>
+                            )}
+                            {code.assignedWells && code.assignedWells.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {code.assignedWells.map((w, idx) => {
+                                  const name = typeof w === 'string' ? w : w.wellName;
+                                  return (
+                                    <span key={idx} className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20 font-mono">
+                                      {name}
+                                    </span>
+                                  );
+                                })}
+                              </div>
                             )}
                           </td>
                           <td className="px-4 py-3 text-gray-300">
@@ -559,6 +744,14 @@ export const CostControllerHub: React.FC<CostControllerHubProps> = ({ onSelectIt
                           <td className="px-4 py-3 text-right">
                             <div className="flex items-center justify-end space-x-1.5">
                               <button
+                                onClick={() => handleOpenAssignModal(code.id, code.wellName)}
+                                className="px-2 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 text-[11px] font-bold transition flex items-center gap-1"
+                                title="Assign Well to this Charge Code"
+                              >
+                                <Link2 className="w-3 h-3" />
+                                <span>Assign Well</span>
+                              </button>
+                              <button
                                 onClick={() => handleOpenModal(code)}
                                 className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white transition"
                                 title="Edit Charge Code"
@@ -577,6 +770,125 @@ export const CostControllerHub: React.FC<CostControllerHubProps> = ({ onSelectIt
                         </tr>
                       );
                     })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: Well & AFE Charge Code Assignment Matrix */}
+      {activeSubTab === 'wellAssignments' && (
+        <div className="space-y-4">
+          
+          {/* Info Header Banner */}
+          <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-start space-x-3">
+              <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shrink-0">
+                <Zap className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                  Automated Campaign Charge Code Provisioning Engine
+                  <span className="px-2 py-0.5 text-[10px] rounded-full bg-emerald-500/20 text-emerald-300 font-mono">
+                    Zero-Manual Entry Active
+                  </span>
+                </h4>
+                <p className="text-xs text-gray-300 mt-0.5">
+                  Cost Controllers can assign and bind AFE Charge Codes to respective wells. When creating new drilling campaigns or adding wells, these charge codes are automatically detected and populated instantly.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => handleOpenAssignModal()}
+              className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-emerald-500/20 transition flex items-center space-x-1.5 shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Assign New Well</span>
+            </button>
+          </div>
+
+          {/* Table of Well Mappings */}
+          <div className="bg-[#0e0e11] border border-white/10 rounded-2xl overflow-hidden shadow-xl">
+            <div className="p-4 border-b border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="relative w-full sm:w-80">
+                <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-3" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Filter well name, AFE code, operator..."
+                  className="w-full bg-black/60 border border-white/10 rounded-xl pl-10 pr-4 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+              <span className="text-xs text-gray-400 font-mono">
+                Total Well-AFE Bindings: <strong className="text-white">{filteredAssignedWells.length}</strong>
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-gray-300">
+                <thead className="bg-black/60 text-gray-400 uppercase text-[10px] tracking-wider border-b border-white/10 font-mono">
+                  <tr>
+                    <th className="px-4 py-3">Well Name & Code</th>
+                    <th className="px-4 py-3">Assigned AFE Charge Code</th>
+                    <th className="px-4 py-3">Operating Company</th>
+                    <th className="px-4 py-3">Project / Campaign</th>
+                    <th className="px-4 py-3">Allocated AFE Budget</th>
+                    <th className="px-4 py-3">Auto-Populate Status</th>
+                    <th className="px-4 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5 font-sans">
+                  {filteredAssignedWells.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-8 text-center text-gray-500 text-xs">
+                        No wells registered in Cost Controller repository yet. Click "Assign New Well" to link a well to a charge code.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredAssignedWells.map((item, idx) => (
+                      <tr key={idx} className="hover:bg-white/5 transition group">
+                        <td className="px-4 py-3">
+                          <div className="font-bold text-white flex items-center gap-1.5">
+                            <span>📍 {item.wellName}</span>
+                          </div>
+                          {item.wellCode && (
+                            <div className="text-[11px] text-gray-400 font-mono">{item.wellCode} {item.wellType && `• ${item.wellType}`}</div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 font-mono">
+                          <div className="font-bold text-emerald-400 flex items-center gap-1">
+                            <Receipt className="w-3.5 h-3.5" />
+                            <span>{item.afeCode}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-gray-300">
+                          {item.operator}
+                        </td>
+                        <td className="px-4 py-3 text-gray-300 font-medium">
+                          {item.projectName}
+                        </td>
+                        <td className="px-4 py-3 font-mono font-bold text-white">
+                          ${item.budgetUsd.toLocaleString()} USD
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1 w-fit">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                            Auto-Populated on Campaign
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            onClick={() => handleOpenAssignModal(item.chargeCodeId, item.wellName)}
+                            className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-amber-400 text-[11px] font-semibold transition"
+                          >
+                            Reassign
+                          </button>
+                        </td>
+                      </tr>
+                    ))
                   )}
                 </tbody>
               </table>
@@ -607,68 +919,11 @@ export const CostControllerHub: React.FC<CostControllerHubProps> = ({ onSelectIt
                 <div className="text-xl font-mono font-bold text-emerald-400">${costMetrics.totalBookValue.toLocaleString()} USD</div>
               </div>
               <div className="p-4 rounded-xl bg-black/50 border border-white/10">
-                <div className="text-xs text-gray-400 font-semibold mb-1">Total Maintenance & Inspection Cost</div>
-                <div className="text-xl font-mono font-bold text-cyan-400">${(costMetrics.totalInspectionCost + costMetrics.totalMaintenanceCost).toLocaleString()} USD</div>
+                <div className="text-xs text-gray-400 font-semibold mb-1">Total OPEX (Inspection & Refurb)</div>
+                <div className="text-xl font-mono font-bold text-amber-400">
+                  ${(costMetrics.totalInspectionCost + costMetrics.totalMaintenanceCost + costMetrics.totalRefurbishmentCost).toLocaleString()} USD
+                </div>
               </div>
-            </div>
-          </div>
-
-          {/* Items Valuation Table */}
-          <div className="bg-[#0e0e11] border border-white/10 rounded-2xl overflow-hidden shadow-xl">
-            <div className="p-4 border-b border-white/10 flex items-center justify-between">
-              <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">
-                Tubular Asset Cost Register ({items.length} Items)
-              </span>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-gray-300">
-                <thead className="bg-black/60 text-gray-400 uppercase text-[10px] tracking-wider border-b border-white/10 font-mono">
-                  <tr>
-                    <th className="px-4 py-3">Tag & Name</th>
-                    <th className="px-4 py-3">Category & Size</th>
-                    <th className="px-4 py-3">Charge Code (AFE)</th>
-                    <th className="px-4 py-3">Vendor</th>
-                    <th className="px-4 py-3">Acquisition Cost</th>
-                    <th className="px-4 py-3">Book Value</th>
-                    <th className="px-4 py-3">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5 font-sans">
-                  {items.slice(0, 30).map(item => (
-                    <tr 
-                      key={item.id} 
-                      onClick={() => onSelectItem && onSelectItem(item)}
-                      className="hover:bg-white/5 transition cursor-pointer"
-                    >
-                      <td className="px-4 py-3 font-mono">
-                        <div className="font-bold text-white">{item.tagNumber}</div>
-                        <div className="text-[11px] text-gray-400">{item.name}</div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="text-gray-200">{item.category}</div>
-                        <div className="text-[11px] text-amber-400 font-mono">{item.outerDiameter} • {item.grade}</div>
-                      </td>
-                      <td className="px-4 py-3 font-mono text-emerald-400">
-                        {item.wellChargeCode || 'Unallocated Pool'}
-                      </td>
-                      <td className="px-4 py-3 text-gray-300">
-                        {item.vendorName || 'Direct Mill'}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-white font-semibold">
-                        ${(item.purchaseCostUsd || 0).toLocaleString()}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-emerald-300 font-semibold">
-                        ${(item.currentBookValueUsd || item.purchaseCostUsd || 0).toLocaleString()}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-white/5 border border-white/10 text-gray-300">
-                          {item.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
             </div>
           </div>
         </div>
@@ -677,51 +932,180 @@ export const CostControllerHub: React.FC<CostControllerHubProps> = ({ onSelectIt
       {/* TAB 3: Surplus Cost Recovery & Savings */}
       {activeSubTab === 'savingsAnalysis' && (
         <div className="space-y-6">
-          <div className="bg-gradient-to-r from-purple-950/40 via-[#0e0e11] to-black border border-purple-500/30 rounded-2xl p-6 space-y-3">
+          <div className="bg-[#0e0e11] border border-white/10 rounded-2xl p-6 space-y-4">
             <h3 className="text-base font-extrabold text-white flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-purple-400" />
-              <span>Surplus Reutilization & Circular Economy Cost Savings</span>
+              <span>Surplus Asset Reutilization & Cost Recovery</span>
             </h3>
-            <p className="text-xs text-gray-300 leading-relaxed max-w-3xl">
-              By refurbishing and reallocating surplus OCTG tubulars rather than purchasing newly milled pipe, the drilling campaign achieves measurable CAPEX savings and reduces carbon emissions.
+            <p className="text-xs text-gray-400 leading-relaxed">
+              Total estimated capital expenditure savings generated by reallocating backloaded and surplus tubulars into active drilling campaigns instead of procurement of new inventory.
             </p>
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-[#0e0e11] border border-white/10 rounded-2xl p-5 space-y-3">
-              <h4 className="text-xs font-bold text-gray-300 uppercase tracking-wider">
-                Financial Savings Summary
-              </h4>
-              <div className="space-y-2 text-xs">
-                <div className="flex justify-between py-1.5 border-b border-white/5">
-                  <span className="text-gray-400">Total Surplus Tubular Items:</span>
-                  <span className="font-mono font-bold text-white">{costMetrics.surplusCount} items</span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+              <div className="p-5 rounded-2xl bg-purple-500/10 border border-purple-500/30">
+                <span className="text-xs font-bold text-purple-300 uppercase tracking-wider">Estimated CAPEX Savings</span>
+                <div className="text-3xl font-extrabold text-white mt-1 font-mono">
+                  ${(costMetrics.estimatedSavingsUsd / 1000).toFixed(1)}k USD
                 </div>
-                <div className="flex justify-between py-1.5 border-b border-white/5">
-                  <span className="text-gray-400">Baseline New Procurement Cost:</span>
-                  <span className="font-mono font-bold text-gray-300">${(costMetrics.estimatedSavingsUsd / 0.85).toLocaleString()}</span>
+                <p className="text-xs text-gray-400 mt-2">
+                  Calculated based on 85% average replacement cost recovery for {costMetrics.surplusCount} active surplus items.
+                </p>
+              </div>
+
+              <div className="p-5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30">
+                <span className="text-xs font-bold text-emerald-300 uppercase tracking-wider">AFE Budget Preservation</span>
+                <div className="text-3xl font-extrabold text-white mt-1 font-mono">
+                  {costMetrics.totalAllocated > 0 ? ((costMetrics.estimatedSavingsUsd / costMetrics.totalAllocated) * 100).toFixed(2) : '0.00'}%
                 </div>
-                <div className="flex justify-between py-1.5 border-b border-white/5">
-                  <span className="text-gray-400">Refurbishment & Re-cert Spend:</span>
-                  <span className="font-mono font-bold text-amber-400">${costMetrics.totalRefurbishmentCost.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between py-1.5 text-emerald-400 font-bold text-sm">
-                  <span>Net Estimated Cost Avoidance:</span>
-                  <span className="font-mono">${costMetrics.estimatedSavingsUsd.toLocaleString()} USD</span>
-                </div>
+                <p className="text-xs text-gray-400 mt-2">
+                  Portion of total campaign AFE budget conserved through disciplined yard surplus utilization.
+                </p>
               </div>
             </div>
+          </div>
+        </div>
+      )}
 
-            <div className="bg-[#0e0e11] border border-white/10 rounded-2xl p-5 space-y-3">
-              <h4 className="text-xs font-bold text-gray-300 uppercase tracking-wider">
-                Surplus Reutilization Policy
-              </h4>
-              <ul className="text-xs text-gray-400 space-y-2 list-disc list-inside leading-relaxed">
-                <li>Surplus casing with API Spec 5CT Level 4 NDT recertification qualifies for tier-1 reservoir casing strings.</li>
-                <li>Transfer charges between well AFEs are credited to the releasing project owner.</li>
-                <li>All scrap / non-conforming tubulars are booked to scrap scrap cert accounts.</li>
-              </ul>
+      {/* QUICK ASSIGN WELL MODAL */}
+      {isAssignWellModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-[#0e0e12] border border-amber-500/30 rounded-3xl p-6 sm:p-8 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                  <Link2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-white">Assign Charge Code to Well</h3>
+                  <p className="text-xs text-gray-400">Creates automatic AFE mapping for campaign setup</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsAssignWellModalOpen(false)}
+                className="text-gray-400 hover:text-white p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
+
+            {assignFeedback && (
+              <div className={`p-3 rounded-xl text-xs flex items-center gap-2 ${assignFeedback.success ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/10 text-rose-300 border border-rose-500/30'}`}>
+                {assignFeedback.success ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <AlertTriangle className="w-4 h-4 text-rose-400" />}
+                <span>{assignFeedback.message}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleExecuteWellAssignment} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 uppercase mb-1">
+                  Target AFE Charge Code *
+                </label>
+                <select
+                  required
+                  value={assignWellForm.chargeCodeId}
+                  onChange={(e) => setAssignWellForm({ ...assignWellForm, chargeCodeId: e.target.value })}
+                  className="w-full bg-black/70 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-emerald-400 font-mono focus:border-amber-500"
+                >
+                  <option value="">-- Select AFE Charge Code --</option>
+                  {chargeCodes.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.code} - {c.projectName} ({c.operator} - ${c.allocatedBudgetUsd.toLocaleString()})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 uppercase mb-1">
+                    Well Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={assignWellForm.wellName}
+                    onChange={(e) => {
+                      const name = e.target.value;
+                      setAssignWellForm({ 
+                        ...assignWellForm, 
+                        wellName: name,
+                        wellCode: assignWellForm.wellCode || (name ? `WEL-${name.replace(/[^a-zA-Z0-9]/g, '-').toUpperCase()}` : '')
+                      });
+                    }}
+                    placeholder="e.g. Well Alpha-03 or Bokor-08"
+                    className="w-full bg-black/70 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-gray-600 focus:border-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 uppercase mb-1">
+                    Well Code
+                  </label>
+                  <input
+                    type="text"
+                    value={assignWellForm.wellCode}
+                    onChange={(e) => setAssignWellForm({ ...assignWellForm, wellCode: e.target.value })}
+                    placeholder="e.g. WEL-ALP-03"
+                    className="w-full bg-black/70 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono placeholder-gray-600 focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 uppercase mb-1">
+                    Well Type
+                  </label>
+                  <select
+                    value={assignWellForm.wellType}
+                    onChange={(e) => setAssignWellForm({ ...assignWellForm, wellType: e.target.value as any })}
+                    className="w-full bg-black/70 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white focus:border-amber-500"
+                  >
+                    <option value="Exploration">Exploration</option>
+                    <option value="Development">Development</option>
+                    <option value="Appraisal">Appraisal</option>
+                    <option value="Workover / Abandonment">Workover / Abandonment</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 uppercase mb-1">
+                    Target Depth (FT)
+                  </label>
+                  <input
+                    type="number"
+                    value={assignWellForm.targetDepthFt}
+                    onChange={(e) => setAssignWellForm({ ...assignWellForm, targetDepthFt: e.target.value })}
+                    placeholder="e.g. 14500"
+                    className="w-full bg-black/70 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono placeholder-gray-600 focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs text-amber-300 flex items-start gap-2">
+                <Info className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <span>
+                  Once assigned, entering <strong>{assignWellForm.wellName || 'this well'}</strong> in any new drilling campaign will auto-populate its AFE Charge Code and operator details.
+                </span>
+              </div>
+
+              <div className="flex justify-end space-x-2.5 pt-2 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setIsAssignWellModalOpen(false)}
+                  className="px-4 py-2.5 bg-white/5 hover:bg-white/10 text-gray-300 text-xs font-bold rounded-xl transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-black text-xs font-extrabold rounded-xl shadow-md shadow-amber-500/20 transition flex items-center gap-1.5"
+                >
+                  <Check className="w-4 h-4" />
+                  Save Well Assignment
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -729,17 +1113,24 @@ export const CostControllerHub: React.FC<CostControllerHubProps> = ({ onSelectIt
       {/* CREATE / EDIT CHARGE CODE MODAL */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="w-full max-w-2xl bg-[#0e0e12] border border-white/10 rounded-3xl p-6 sm:p-8 space-y-5 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-white/10 pb-4">
-              <div>
-                <h3 className="text-base sm:text-lg font-extrabold text-white">
-                  {editingCode ? 'Edit AFE Charge Code' : 'Register New AFE Charge Code'}
-                </h3>
-                <p className="text-xs text-gray-400">Drilling campaign financial allocation & ERP linkage</p>
+          <div className="w-full max-w-xl bg-[#0e0e12] border border-white/10 rounded-3xl p-6 sm:p-8 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  <Receipt className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-white">
+                    {editingCode ? `Edit Charge Code (${editingCode.code})` : 'Create New AFE Well Charge Code'}
+                  </h3>
+                  <p className="text-xs text-gray-400">
+                    Track AFE budget, cost center, and equipment commitments
+                  </p>
+                </div>
               </div>
-              <button
+              <button 
                 onClick={() => setIsModalOpen(false)}
-                className="text-gray-500 hover:text-white text-xs font-mono"
+                className="text-gray-400 hover:text-white text-xs font-bold"
               >
                 ✕ Close
               </button>
