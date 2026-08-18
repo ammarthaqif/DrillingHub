@@ -84,7 +84,10 @@ export const AdminPanel: React.FC = () => {
     roleModulePermissions,
     updateRoleModulePermissions,
     resetRoleModulePermissions,
-    hasModuleAccess
+    hasModuleAccess,
+    onlineUsers,
+    onlineUserCount,
+    terminateUserSession
   } = useDrilling();
 
   const [activeTab, setActiveTab] = useState<'users' | 'emailConfig' | 'dropdowns' | 'sysConfig' | 'database' | 'moduleAccess'>('users');
@@ -479,15 +482,30 @@ export const AdminPanel: React.FC = () => {
                     const isApproved = (user.status || 'Active Approved') === 'Active Approved';
                     const isPendingVerify = user.status === 'Pending Email Verification';
                     const isPendingApprove = user.status === 'Pending Admin Approval';
+                    const activePresence = onlineUsers.find(u => (u.userId === user.id || u.userEmail.toLowerCase() === user.email.toLowerCase()) && (u.status === 'ONLINE' || u.status === 'AWAY'));
 
                     return (
                       <tr key={user.id} className="hover:bg-white/5 transition">
                         <td className="p-3.5">
-                          <div className="font-bold text-white">{user.name}</div>
+                          <div className="flex items-center gap-2">
+                            <div className="font-bold text-white">{user.name}</div>
+                            {activePresence && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950 border border-emerald-500/40 text-emerald-300" title={`Online • Activity: ${activePresence.currentModule}`}>
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                                <span>Online</span>
+                              </span>
+                            )}
+                          </div>
                           <div className="text-[11px] text-gray-400 font-mono flex items-center space-x-1 mt-0.5">
                             <Mail className="w-3 h-3 text-amber-400" />
                             <span>{user.email}</span>
                           </div>
+                          {activePresence && (
+                            <div className="text-[10px] text-emerald-400/90 flex items-center gap-1 mt-0.5">
+                              <Radio className="w-2.5 h-2.5" />
+                              <span>Current: {activePresence.currentModule}</span>
+                            </div>
+                          )}
                         </td>
 
                         <td className="p-3.5">

@@ -89,8 +89,6 @@ export const CampaignManagerModal: React.FC<CampaignManagerModalProps> = ({ isOp
     return getAllAssignedWells ? getAllAssignedWells() : [];
   }, [getAllAssignedWells, chargeCodes]);
 
-  if (!isOpen) return null;
-
   // Handler when typing well in "Create Campaign" tab to auto-populate
   const handleQuickWellChange = (inputVal: string) => {
     setQuickWellInput(inputVal);
@@ -295,6 +293,8 @@ export const CampaignManagerModal: React.FC<CampaignManagerModalProps> = ({ isOp
       c.wells.some(w => w.name.toLowerCase().includes(q) || (w.afeCode && w.afeCode.toLowerCase().includes(q)))
     );
   });
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 overflow-y-auto">

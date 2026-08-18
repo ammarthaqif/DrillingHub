@@ -1,16 +1,19 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { 
   getFirestore, 
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  setLogLevel,
   collection, 
   doc, 
   onSnapshot, 
   setDoc, 
-  getDoc,
+  getDoc, 
   getDocs, 
   updateDoc, 
   deleteDoc, 
-  writeBatch,
-  enableIndexedDbPersistence 
+  writeBatch 
 } from 'firebase/firestore';
 import { 
   getAuth, 
@@ -23,6 +26,11 @@ import {
 } from 'firebase/auth';
 import firebaseConfigJson from '../../firebase-applet-config.json';
 import { decryptData, encryptData } from '../utils/crypto';
+
+// Silence benign transient connection retry warnings from internal Firestore logger
+try {
+  setLogLevel('error');
+} catch {}
 
 // Encrypt credentials at rest & dynamically decrypt on app initialization
 const rawConfig = {
@@ -46,10 +54,19 @@ export const dedicatedDatabaseId = firebaseConfigJson?.firestoreDatabaseId || '(
 
 try {
   app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-  dbInstance = getFirestore(app, dedicatedDatabaseId);
+  try {
+    dbInstance = initializeFirestore(app, {
+      experimentalAutoDetectLongPolling: true,
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
+    }, dedicatedDatabaseId);
+  } catch {
+    dbInstance = getFirestore(app, dedicatedDatabaseId);
+  }
   authInstance = getAuth(app);
-} catch (e) {
-  console.error('Firebase initialization error, falling back to local database:', e);
+} catch (e: any) {
+  console.warn('Firebase initialization notice, using local database fallback:', e?.message || String(e));
 }
 
 export const db = dbInstance;

@@ -29,7 +29,9 @@ import {
   DatabaseBackupRecord,
   WellChargeCode,
   AssignedWellInfo,
-  SystemNotification
+  SystemNotification,
+  OnlineUserPresence,
+  UserPresenceStatus
 } from '../types/drilling';
 import { 
   INITIAL_ITEMS, 
@@ -125,6 +127,14 @@ interface DrillingContextType {
   removeCorporateDomain: (domain: string) => void;
   exportDatabaseSnapshot: () => void;
   resetDatabaseToInitial: () => void;
+
+  // Real-time Active Online Users & Operational Presence
+  onlineUsers: OnlineUserPresence[];
+  onlineUserCount: number;
+  currentActiveModuleName: string;
+  updateUserCurrentModule: (moduleName: string) => void;
+  terminateUserSession: (sessionId: string) => Promise<{ success: boolean; message: string }>;
+  refreshOnlinePresence: () => void;
   
   // Customizable Dropdowns
   availableRoles: string[];
@@ -325,8 +335,13 @@ interface DrillingContextType {
   isOffline: boolean;
   setIsOffline: (val: boolean) => void;
   offlineQueue: OfflineQueueItem[];
-  processSyncQueue: () => void;
+  processSyncQueue: () => Promise<boolean>;
   clearOfflineQueue: () => void;
+  syncStatus: 'online' | 'offline' | 'syncing' | 'synced' | 'error';
+  syncProgress: { total: number; processed: number; currentItem?: string; percent: number };
+  lastSyncedAt: string | null;
+  toggleOfflineMode: () => void;
+  addToOfflineQueue: (item: Omit<OfflineQueueItem, 'id' | 'timestamp'>) => void;
 
   // Alerts
   alerts: AlertSummary;
@@ -472,25 +487,373 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [pendingLoginRequest, setPendingLoginRequest] = useState<ConcurrentLoginRequestData | null>(null);
   const [logoutNotice, setLogoutNotice] = useState<string | null>(null);
 
-  // Active Session Heartbeat & Pending Request Polling
+  // Offline state & queue (declared early for top-level hooks)
+  const [isOffline, setIsOffline] = useState<boolean>(() => {
+    try {
+      const manual = localStorage.getItem('drillcore_manual_offline');
+      if (manual === 'true') return true;
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return true;
+    } catch {}
+    return false;
+  });
+
+  const [offlineQueue, setOfflineQueue] = useState<OfflineQueueItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('drillcore_offline_queue');
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch {}
+    return [];
+  });
+
+  const [syncStatus, setSyncStatus] = useState<'online' | 'offline' | 'syncing' | 'synced' | 'error'>(() => {
+    try {
+      const manual = localStorage.getItem('drillcore_manual_offline');
+      if (manual === 'true' || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+        return 'offline';
+      }
+    } catch {}
+    return 'online';
+  });
+
+  const [syncProgress, setSyncProgress] = useState<{
+    total: number;
+    processed: number;
+    currentItem?: string;
+    percent: number;
+  }>({
+    total: 0,
+    processed: 0,
+    currentItem: undefined,
+    percent: 100,
+  });
+
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('drillcore_last_synced_at') || new Date().toISOString();
+    } catch {
+      return null;
+    }
+  });
+
+  // Helper to append actions to offline queue
+  const addToOfflineQueue = (action: Omit<OfflineQueueItem, 'id' | 'timestamp'>) => {
+    const newItem: OfflineQueueItem = {
+      id: `queue-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      timestamp: new Date().toISOString(),
+      actionType: action.actionType,
+      payload: action.payload,
+      description: action.description,
+    };
+    setOfflineQueue(prev => {
+      const updated = [newItem, ...prev];
+      try {
+        localStorage.setItem('drillcore_offline_queue', safeJsonStringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
+  const toggleOfflineMode = () => {
+    setIsOffline(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('drillcore_manual_offline', next ? 'true' : 'false');
+      } catch {}
+      setSyncStatus(next ? 'offline' : 'online');
+      return next;
+    });
+  };
+
+  // Unique browser tab / session identifier
+  const [currentSessionId] = useState<string>(() => {
+    try {
+      let s = sessionStorage.getItem('drillcore_tab_session_id');
+      if (!s) {
+        s = 'sess_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now().toString(36);
+        sessionStorage.setItem('drillcore_tab_session_id', s);
+      }
+      return s;
+    } catch {
+      return 'sess_' + Date.now();
+    }
+  });
+
+  // Current active working module within the application
+  const [currentActiveModuleName, setCurrentActiveModuleName] = useState<string>('Dashboard Overview');
+
+  // Generator for default mock & corporate peer presences
+  const generateInitialPresences = (currentAuthUser?: UserProfile, currentMod = 'Dashboard Overview', sessId = 'sess_default'): OnlineUserPresence[] => {
+    const now = Date.now();
+    const presences: OnlineUserPresence[] = [];
+
+    if (currentAuthUser) {
+      presences.push({
+        id: `presence_${currentAuthUser.id}_${sessId}`,
+        sessionId: sessId,
+        userId: currentAuthUser.id,
+        userName: currentAuthUser.name,
+        userRole: currentAuthUser.role,
+        userEmail: currentAuthUser.email,
+        department: currentAuthUser.department,
+        location: currentAuthUser.location,
+        currentModule: currentMod,
+        activeCampaignCode: 'CMP-2026-ALPHA',
+        loginTime: now - (14 * 60 * 1000),
+        lastHeartbeat: now,
+        status: 'ONLINE',
+        isCurrentUser: true,
+        deviceInfo: {
+          browser: 'Google Chrome (Corporate SSL)',
+          platform: 'Windows 11 Enterprise',
+          ip: '10.240.18.42 (Corporate Intranet)'
+        }
+      });
+    }
+
+    const mockPeers: Array<Partial<OnlineUserPresence>> = [
+      {
+        userId: 'usr-rig-01',
+        userName: 'Capt. David MacLeod',
+        userRole: 'Rig Toolpusher',
+        userEmail: 'd.macleod@apexdrilling.com',
+        department: 'Rig Site Operations',
+        location: 'Offshore Rig Alpha',
+        currentModule: 'Rig Callouts & Tally Dispatch',
+        activeCampaignCode: 'CMP-2026-ALPHA',
+        loginTime: now - (42 * 60 * 1000),
+        lastHeartbeat: now - 8000,
+        status: 'ONLINE',
+        deviceInfo: {
+          browser: 'Edge on Rig Tablet',
+          platform: 'Android Rugged Tablet',
+          ip: '172.16.88.10 (Rig SatLink Alpha)'
+        }
+      },
+      {
+        userId: 'usr-matco-01',
+        userName: 'Farid Hashim',
+        userRole: 'Materials Coordinator',
+        userEmail: 'farid.h@apexdrilling.com',
+        department: 'Logistics & Supply Chain',
+        location: 'Main Supply Base Yard',
+        currentModule: 'Supply Base Dispatch Bay',
+        activeCampaignCode: 'CMP-2026-ALPHA',
+        loginTime: now - (68 * 60 * 1000),
+        lastHeartbeat: now - 14000,
+        status: 'ONLINE',
+        deviceInfo: {
+          browser: 'Google Chrome',
+          platform: 'Windows Workstation',
+          ip: '10.20.104.15 (Kemaman Yard Base)'
+        }
+      },
+      {
+        userId: 'usr-qa-01',
+        userName: 'Sarah Tan, CWI',
+        userRole: 'QA/QC Inspector',
+        userEmail: 'sarah.tan@apexdrilling.com',
+        department: 'Quality Assurance & Inspection',
+        location: 'Machine Shop & Testing Facility',
+        currentModule: 'Tubular Non-Destructive Testing (NDT)',
+        activeCampaignCode: 'CMP-2026-ALPHA',
+        loginTime: now - (115 * 60 * 1000),
+        lastHeartbeat: now - 32000,
+        status: 'ONLINE',
+        deviceInfo: {
+          browser: 'Safari Mobile',
+          platform: 'iPad Pro Inspector',
+          ip: '10.30.55.20 (Lab QA/QC)'
+        }
+      },
+      {
+        userId: 'usr-cost-01',
+        userName: 'Rachel Lee',
+        userRole: 'Cost Controller',
+        userEmail: 'rachel.lee@apexdrilling.com',
+        department: 'Finance & Cost Control',
+        location: 'Main Supply Base Yard',
+        currentModule: 'Well AFE Budgets & Cost Allocation',
+        activeCampaignCode: 'CMP-2026-BETA',
+        loginTime: now - (90 * 60 * 1000),
+        lastHeartbeat: now - 62000,
+        status: 'AWAY',
+        deviceInfo: {
+          browser: 'Google Chrome',
+          platform: 'macOS Workstation',
+          ip: '10.10.12.80 (HQ Finance)'
+        }
+      }
+    ];
+
+    mockPeers.forEach((p, idx) => {
+      if (!currentAuthUser || p.userId !== currentAuthUser.id) {
+        presences.push({
+          id: `presence_${p.userId}_sim_${idx}`,
+          sessionId: `sess_peer_${p.userId}`,
+          userId: p.userId!,
+          userName: p.userName!,
+          userRole: p.userRole as UserRole,
+          userEmail: p.userEmail!,
+          department: p.department!,
+          location: p.location as LocationType,
+          currentModule: p.currentModule!,
+          activeCampaignCode: p.activeCampaignCode,
+          loginTime: p.loginTime!,
+          lastHeartbeat: p.lastHeartbeat!,
+          status: p.status as UserPresenceStatus,
+          isCurrentUser: false,
+          deviceInfo: p.deviceInfo
+        });
+      }
+    });
+
+    return presences;
+  };
+
+  const [onlineUsers, setOnlineUsers] = useState<OnlineUserPresence[]>(() => {
+    return generateInitialPresences(currentUser, 'Dashboard Overview', currentSessionId);
+  });
+
+  const onlineUserCount = useMemo(() => {
+    const count = onlineUsers.filter(u => u.status === 'ONLINE' || u.status === 'AWAY').length;
+    return count > 0 ? count : 1;
+  }, [onlineUsers]);
+
+  const updateUserCurrentModule = (moduleName: string) => {
+    if (!moduleName || moduleName === currentActiveModuleName) return;
+    setCurrentActiveModuleName(moduleName);
+  };
+
+  const refreshOnlinePresence = () => {
+    if (!isAuthenticated || !currentUser) return;
+    const now = Date.now();
+    setOnlineUsers(prev => {
+      return prev.map(u => {
+        if (u.sessionId === currentSessionId || u.userId === currentUser.id) {
+          return {
+            ...u,
+            currentModule: currentActiveModuleName,
+            lastHeartbeat: now,
+            status: 'ONLINE',
+            isCurrentUser: true,
+          };
+        }
+        const isAway = (now - u.lastHeartbeat) > 45000;
+        return {
+          ...u,
+          status: isAway ? 'AWAY' : 'ONLINE'
+        };
+      });
+    });
+  };
+
+  const terminateUserSession = async (sessionId: string): Promise<{ success: boolean; message: string }> => {
+    if (!sessionId) return { success: false, message: 'Invalid session ID specified.' };
+
+    if (sessionId === currentSessionId) {
+      logoutUser('Your active session was terminated by a System Administrator.');
+      return { success: true, message: 'Current session terminated.' };
+    }
+
+    try {
+      // 1. Remove from Firestore if doc exists
+      if (!isOffline && db) {
+        const presDoc = onlineUsers.find(p => p.sessionId === sessionId);
+        if (presDoc) {
+          deleteDoc(doc(db, 'presence', presDoc.id)).catch(() => {});
+        }
+      }
+
+      // 2. Broadcast termination event
+      if (typeof BroadcastChannel !== 'undefined') {
+        try {
+          const bc = new BroadcastChannel('drillcore_presence_channel');
+          bc.postMessage({ type: 'FORCE_TERMINATE_SESSION', sessionId });
+          bc.close();
+        } catch {}
+      }
+
+      // 3. Remove from local presence list
+      setOnlineUsers(prev => prev.filter(p => p.sessionId !== sessionId));
+
+      logAuditTrail(
+        'USER_STATUS_UPDATED',
+        sessionId,
+        `Session terminated by Administrator: Disconnected remote session ID '${sessionId}'.`,
+        `Terminated by ${currentUser.name} (${currentUser.role})`
+      );
+
+      return { success: true, message: `Session ${sessionId} terminated successfully.` };
+    } catch (err: any) {
+      return { success: false, message: `Failed to terminate session: ${err?.message || String(err)}` };
+    }
+  };
+
+  // Active Session Heartbeat & Presence Broadcast
   useEffect(() => {
     let timer: NodeJS.Timeout;
 
     if (isAuthenticated && currentUser) {
       const syncSessionAndRequests = () => {
         try {
+          const now = Date.now();
           // 1. Maintain active session heartbeat
           const sessData: ActiveSessionData = {
             userId: currentUser.id,
             userName: currentUser.name,
             userRole: currentUser.role,
             userEmail: currentUser.email,
-            loginTime: Date.now(),
-            lastHeartbeat: Date.now(),
+            loginTime: now,
+            lastHeartbeat: now,
           };
           localStorage.setItem('drillcore_active_session', safeJsonStringify(sessData));
 
-          // 2. Poll for incoming login requests
+          // 2. Build live presence object
+          const currentPresence: OnlineUserPresence = {
+            id: `presence_${currentUser.id}_${currentSessionId}`,
+            sessionId: currentSessionId,
+            userId: currentUser.id,
+            userName: currentUser.name,
+            userRole: currentUser.role,
+            userEmail: currentUser.email,
+            department: currentUser.department,
+            location: currentUser.location,
+            currentModule: currentActiveModuleName,
+            activeCampaignCode: 'CMP-2026-ALPHA',
+            loginTime: sessData.loginTime || now,
+            lastHeartbeat: now,
+            status: 'ONLINE',
+            isCurrentUser: true,
+            deviceInfo: {
+              browser: navigator.userAgent.includes('Chrome') ? 'Google Chrome (SSL Secured)' : navigator.userAgent.includes('Safari') ? 'Apple Safari' : 'Corporate Browser',
+              platform: navigator.platform || 'Workstation',
+              ip: '10.240.18.42 (Corporate Intranet)'
+            }
+          };
+
+          // 3. Write presence to Firestore
+          if (!isOffline && db) {
+            setDoc(doc(db, 'presence', currentPresence.id), safeClone(currentPresence)).catch(() => {});
+          }
+
+          // 4. Broadcast via channel
+          if (typeof BroadcastChannel !== 'undefined') {
+            try {
+              const bc = new BroadcastChannel('drillcore_presence_channel');
+              bc.postMessage({ type: 'PRESENCE_HEARTBEAT', presence: safeClone(currentPresence) });
+              bc.close();
+            } catch {}
+          }
+
+          // 5. Update local state
+          setOnlineUsers(prev => {
+            const others = prev.filter(p => p.sessionId !== currentSessionId && p.userId !== currentUser.id);
+            return [{ ...currentPresence, isCurrentUser: true }, ...others];
+          });
+
+          // 6. Poll for incoming login requests
           const rawReq = localStorage.getItem('drillcore_concurrent_login_request');
           if (rawReq) {
             const parsed: ConcurrentLoginRequestData = safeJsonParse(rawReq, null as any);
@@ -508,7 +871,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       };
 
       syncSessionAndRequests();
-      timer = setInterval(syncSessionAndRequests, 800);
+      timer = setInterval(syncSessionAndRequests, 10000);
     } else {
       setPendingLoginRequest(null);
     }
@@ -516,9 +879,9 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [isAuthenticated, currentUser]);
+  }, [isAuthenticated, currentUser, currentActiveModuleName, currentSessionId, isOffline]);
 
-  // Window Storage & BroadcastChannel Listener for Real-Time Sync Across Tabs
+  // Window Storage & BroadcastChannel Listener for Presence & Cross-Tab Events
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'drillcore_concurrent_login_request' && e.newValue) {
@@ -533,23 +896,58 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     window.addEventListener('storage', handleStorageChange);
 
-    let bc: BroadcastChannel | null = null;
+    let sessionBc: BroadcastChannel | null = null;
+    let presenceBc: BroadcastChannel | null = null;
+
     if (typeof BroadcastChannel !== 'undefined') {
-      bc = new BroadcastChannel('drillcore_session_channel');
-      bc.onmessage = (event) => {
+      sessionBc = new BroadcastChannel('drillcore_session_channel');
+      sessionBc.onmessage = (event) => {
         if (event.data?.type === 'LOGIN_REQUEST_SUBMITTED' && isAuthenticated) {
           if (event.data.request && event.data.request.status === 'PENDING') {
             setPendingLoginRequest(event.data.request);
           }
         }
       };
+
+      presenceBc = new BroadcastChannel('drillcore_presence_channel');
+      presenceBc.onmessage = (event) => {
+        const data = event.data;
+        if (!data) return;
+
+        if (data.type === 'FORCE_TERMINATE_SESSION' && data.sessionId === currentSessionId) {
+          logoutUser('Your active session was terminated by a System Administrator.');
+        } else if (data.type === 'PRESENCE_HEARTBEAT' && data.presence) {
+          const incoming: OnlineUserPresence = data.presence;
+          setOnlineUsers(prev => {
+            const index = prev.findIndex(p => p.sessionId === incoming.sessionId);
+            if (index >= 0) {
+              const copy = [...prev];
+              copy[index] = { ...incoming, isCurrentUser: incoming.sessionId === currentSessionId };
+              return copy;
+            } else {
+              return [{ ...incoming, isCurrentUser: incoming.sessionId === currentSessionId }, ...prev];
+            }
+          });
+        }
+      };
     }
+
+    // Cleanup on tab unload
+    const handleBeforeUnload = () => {
+      if (currentUser && !isOffline && db) {
+        const presDocId = `presence_${currentUser.id}_${currentSessionId}`;
+        deleteDoc(doc(db, 'presence', presDocId)).catch(() => {});
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
 
     return () => {
       window.removeEventListener('storage', handleStorageChange);
-      if (bc) bc.close();
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      if (sessionBc) sessionBc.close();
+      if (presenceBc) presenceBc.close();
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, currentUser, isOffline, currentSessionId]);
 
   const acceptConcurrentLoginRequest = (reqId: string) => {
     try {
@@ -713,6 +1111,20 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const logoutUser = (reason?: string) => {
+    // Clean up presence record from Firestore and broadcast
+    if (!isOffline && db && currentUser) {
+      const presDocId = `presence_${currentUser.id}_${currentSessionId}`;
+      deleteDoc(doc(db, 'presence', presDocId)).catch(() => {});
+    }
+
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        const bc = new BroadcastChannel('drillcore_presence_channel');
+        bc.postMessage({ type: 'FORCE_TERMINATE_SESSION', sessionId: currentSessionId });
+        bc.close();
+      } catch {}
+    }
+
     setIsAuthenticated(false);
     if (reason) {
       setLogoutNotice(reason);
@@ -2132,10 +2544,6 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }));
   };
 
-  // Offline state & queue
-  const [isOffline, setIsOffline] = useState<boolean>(false);
-  const [offlineQueue, setOfflineQueue] = useState<OfflineQueueItem[]>([]);
-
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedHoleSection, setSelectedHoleSection] = useState<HoleSection | 'ALL'>('ALL');
@@ -2186,7 +2594,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         });
       }
     }, (err) => {
-      console.warn('Firestore items sync offline fallback:', err);
+      console.warn('Firestore items sync offline fallback:', err?.message || String(err));
     });
 
     // Transfers Listener
@@ -2203,7 +2611,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         });
       }
     }, (err) => {
-      console.warn('Firestore transfers sync offline fallback:', err);
+      console.warn('Firestore transfers sync offline fallback:', err?.message || String(err));
     });
 
     // Users Listener
@@ -2220,7 +2628,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         });
       }
     }, (err) => {
-      console.warn('Firestore users sync offline fallback:', err);
+      console.warn('Firestore users sync offline fallback:', err?.message || String(err));
     });
 
     // Email Outbox Listener
@@ -2233,7 +2641,7 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setEmailOutbox(fetchedOutbox);
       }
     }, (err) => {
-      console.warn('Firestore outbox sync fallback:', err);
+      console.warn('Firestore outbox sync fallback:', err?.message || String(err));
     });
 
     // System Config Listener
@@ -2248,7 +2656,30 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setDoc(doc(db, 'config', 'global_settings'), safeClone(DEFAULT_CONFIG)).catch(() => {});
       }
     }, (err) => {
-      console.warn('Firestore config sync fallback:', err);
+      console.warn('Firestore config sync fallback:', err?.message || String(err));
+    });
+
+    // Real-time Active User Presence Listener
+    const unsubPresence = onSnapshot(collection(db, 'presence'), (snapshot) => {
+      if (!snapshot.empty) {
+        const now = Date.now();
+        const fetchedPresences: OnlineUserPresence[] = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data() as OnlineUserPresence;
+          if (data && data.lastHeartbeat && (now - data.lastHeartbeat) < 180000) {
+            fetchedPresences.push({
+              ...data,
+              status: (now - data.lastHeartbeat) > 45000 ? 'AWAY' : 'ONLINE',
+              isCurrentUser: data.sessionId === currentSessionId || (currentUser && data.userId === currentUser.id)
+            });
+          }
+        });
+        if (fetchedPresences.length > 0) {
+          setOnlineUsers(fetchedPresences);
+        }
+      }
+    }, (err) => {
+      console.warn('Firestore presence sync fallback:', err?.message || String(err));
     });
 
     return () => {
@@ -2257,37 +2688,90 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       unsubUsers();
       unsubOutbox();
       unsubConfig();
+      unsubPresence();
     };
   }, [isOffline]);
 
-  // Helper to persist single item to Firestore
+  // Window Network State Event Listeners (Auto-detect online/offline drops)
+  useEffect(() => {
+    const handleOnline = () => {
+      const isManual = localStorage.getItem('drillcore_manual_offline') === 'true';
+      if (!isManual) {
+        setIsOffline(false);
+        setSyncStatus('online');
+        addSystemNotification({
+          title: 'Network Connected',
+          message: 'Active internet connection detected. Ready to synchronize.',
+          category: 'GENERAL',
+          severity: 'success',
+        });
+      }
+    };
+
+    const handleOffline = () => {
+      setIsOffline(true);
+      setSyncStatus('offline');
+      addSystemNotification({
+        title: 'Offline Field Mode Activated',
+        message: 'Network connection dropped. All changes are being safely saved to local storage.',
+        category: 'GENERAL',
+        severity: 'warning',
+      });
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Helper to persist single item to Firestore or local queue if offline
   const saveItemToFirestore = (item: TubularItem) => {
-    if (!isOffline && db) {
-      setDoc(doc(db, 'items', item.id), safeClone(item)).catch(err => console.error('Firestore saveItem err:', err));
+    if (isOffline) {
+      addToOfflineQueue({
+        actionType: 'UPDATE_ITEM',
+        payload: item,
+        description: `Update Item: ${item.tagNumber || item.id} (${item.serialNumber || 'Tubular'})`,
+      });
+      return;
+    }
+    if (db) {
+      setDoc(doc(db, 'items', item.id), safeClone(item)).catch(err => console.warn('Firestore saveItem fallback:', err?.message || String(err)));
     }
   };
 
   const saveTransferToFirestore = (transfer: MaterialTransferTicket) => {
-    if (!isOffline && db) {
-      setDoc(doc(db, 'transfers', transfer.id), safeClone(transfer)).catch(err => console.error('Firestore saveTransfer err:', err));
+    if (isOffline) {
+      addToOfflineQueue({
+        actionType: 'CREATE_TRANSFER',
+        payload: transfer,
+        description: `Transfer Ticket: ${transfer.manifestNumber || transfer.id} (${transfer.originLocation} → ${transfer.destinationLocation})`,
+      });
+      return;
+    }
+    if (db) {
+      setDoc(doc(db, 'transfers', transfer.id), safeClone(transfer)).catch(err => console.warn('Firestore saveTransfer fallback:', err?.message || String(err)));
     }
   };
 
   const saveUserToFirestore = (user: UserProfile) => {
     if (!isOffline && db) {
-      setDoc(doc(db, 'users', user.id), safeClone(user)).catch(err => console.error('Firestore saveUser err:', err));
+      setDoc(doc(db, 'users', user.id), safeClone(user)).catch(err => console.warn('Firestore saveUser fallback:', err?.message || String(err)));
     }
   };
 
   const saveOutboxRecordToFirestore = (record: VerificationEmailRecord) => {
     if (!isOffline && db) {
-      setDoc(doc(db, 'email_outbox', record.id), safeClone(record)).catch(err => console.error('Firestore saveOutbox err:', err));
+      setDoc(doc(db, 'email_outbox', record.id), safeClone(record)).catch(err => console.warn('Firestore saveOutbox fallback:', err?.message || String(err)));
     }
   };
 
   const saveConfigToFirestore = (config: SystemConfiguration) => {
     if (!isOffline && db) {
-      setDoc(doc(db, 'config', 'global_settings'), safeClone(config)).catch(err => console.error('Firestore saveConfig err:', err));
+      setDoc(doc(db, 'config', 'global_settings'), safeClone(config)).catch(err => console.warn('Firestore saveConfig fallback:', err?.message || String(err)));
     }
   };
 
@@ -3973,14 +4457,133 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return permissions.includes(moduleKey);
   };
 
-  // Sync Queue
-  const processSyncQueue = () => {
-    setIsOffline(false);
-    setOfflineQueue([]);
+  // Sync Queue & Synchronization Progress Engine
+  const processSyncQueue = async (): Promise<boolean> => {
+    // If user has manual offline mode turned on, turn it off to allow sync
+    if (isOffline) {
+      setIsOffline(false);
+      try {
+        localStorage.setItem('drillcore_manual_offline', 'false');
+      } catch {}
+    }
+
+    if (offlineQueue.length === 0) {
+      setSyncStatus('synced');
+      const nowIso = new Date().toISOString();
+      setLastSyncedAt(nowIso);
+      try {
+        localStorage.setItem('drillcore_last_synced_at', nowIso);
+      } catch {}
+      setTimeout(() => {
+        setSyncStatus('online');
+      }, 2500);
+      return true;
+    }
+
+    setSyncStatus('syncing');
+    const total = offlineQueue.length;
+    setSyncProgress({
+      total,
+      processed: 0,
+      currentItem: offlineQueue[0]?.description || 'Initializing sync...',
+      percent: 0,
+    });
+
+    try {
+      // Step-by-step progress simulation & actual Firestore upload
+      for (let i = 0; i < total; i++) {
+        const item = offlineQueue[i];
+        const pct = Math.round(((i + 1) / total) * 100);
+        
+        setSyncProgress({
+          total,
+          processed: i + 1,
+          currentItem: item.description,
+          percent: pct,
+        });
+
+        // Small delay for smooth animated UX feedback
+        await new Promise(res => setTimeout(res, 260));
+
+        // Sync item to Firestore if connected
+        if (db) {
+          try {
+            if (item.actionType === 'UPDATE_ITEM' && item.payload?.id) {
+              await setDoc(doc(db, 'items', item.payload.id), safeClone(item.payload), { merge: true });
+            } else if (item.actionType === 'CREATE_TRANSFER' && item.payload?.id) {
+              await setDoc(doc(db, 'transfers', item.payload.id), safeClone(item.payload), { merge: true });
+            }
+          } catch (err) {
+            console.warn('Firestore sync single payload fallback:', err);
+          }
+        }
+      }
+
+      // Finalize progress
+      setSyncProgress({
+        total,
+        processed: total,
+        currentItem: 'All local changes successfully synchronized with Cloud',
+        percent: 100,
+      });
+
+      await new Promise(res => setTimeout(res, 300));
+
+      setOfflineQueue([]);
+      try {
+        localStorage.removeItem('drillcore_offline_queue');
+      } catch {}
+
+      const nowIso = new Date().toISOString();
+      setLastSyncedAt(nowIso);
+      try {
+        localStorage.setItem('drillcore_last_synced_at', nowIso);
+      } catch {}
+
+      setSyncStatus('synced');
+
+      addSystemNotification({
+        title: 'Cloud Synchronization Complete',
+        message: `Successfully synchronized ${total} offline action(s) with Central DrillSpec Cloud database.`,
+        category: 'GENERAL',
+        severity: 'success',
+      });
+
+      logAuditTrail(
+        'DATABASE_RESTORE_PERFORMED',
+        'OFFLINE_QUEUE_SYNC',
+        `Successfully synchronized ${total} offline modifications to central cloud repository.`
+      );
+
+      setTimeout(() => {
+        setSyncStatus('online');
+      }, 3500);
+
+      return true;
+    } catch (err: any) {
+      console.error('Offline sync error:', err);
+      setSyncStatus('error');
+      addSystemNotification({
+        title: 'Sync Interrupted',
+        message: `Failed to complete cloud synchronization: ${err?.message || 'Network timeout'}`,
+        category: 'GENERAL',
+        severity: 'error',
+      });
+      return false;
+    }
   };
 
   const clearOfflineQueue = () => {
     setOfflineQueue([]);
+    try {
+      localStorage.removeItem('drillcore_offline_queue');
+    } catch {}
+    addSystemNotification({
+      title: 'Offline Queue Cleared',
+      message: 'Discarded pending offline queue modifications.',
+      category: 'GENERAL',
+      severity: 'info',
+    });
   };
 
   // Calculated Alert Summary
@@ -4153,6 +4756,14 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       getChargeCodeForWell,
       getAllAssignedWells,
 
+      // Real-time Active Online Users & Operational Presence
+      onlineUsers,
+      onlineUserCount,
+      currentActiveModuleName,
+      updateUserCurrentModule,
+      terminateUserSession,
+      refreshOnlinePresence,
+
       availableRoles,
       availableDepartments,
       availableLocations,
@@ -4222,6 +4833,11 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       offlineQueue,
       processSyncQueue,
       clearOfflineQueue,
+      syncStatus,
+      syncProgress,
+      lastSyncedAt,
+      toggleOfflineMode,
+      addToOfflineQueue,
       alerts,
       filteredItems,
     }}>

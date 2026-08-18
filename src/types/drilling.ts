@@ -93,6 +93,31 @@ export interface ActiveSessionData {
   lastHeartbeat: number;
 }
 
+export type UserPresenceStatus = 'ONLINE' | 'AWAY' | 'IDLE';
+
+export interface OnlineUserPresence {
+  id: string;
+  sessionId: string;
+  userId: string;
+  userName: string;
+  userRole: UserRole | string;
+  userEmail: string;
+  department: string;
+  location: LocationType | string;
+  currentModule: string;
+  activeCampaignCode?: string;
+  loginTime: number;
+  lastHeartbeat: number;
+  status: UserPresenceStatus;
+  deviceInfo?: {
+    browser?: string;
+    platform?: string;
+    userAgent?: string;
+    ip?: string;
+  };
+  isCurrentUser?: boolean;
+}
+
 export interface ConcurrentLoginRequestData {
   requestId: string;
   requestingUser: {

@@ -49,8 +49,6 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
     });
   }, [notifications, selectedCategory, filterUnreadOnly]);
 
-  if (!isOpen) return null;
-
   const getIconForCategory = (cat: NotificationCategory, severity: SystemNotification['severity']) => {
     switch (cat) {
       case 'INSPECTION':
@@ -75,6 +73,8 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
       onClose();
     }
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">

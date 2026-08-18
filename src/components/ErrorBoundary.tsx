@@ -20,7 +20,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('Uncaught error in application:', error, errorInfo);
+    console.warn('Caught error in application:', error?.message || String(error), errorInfo?.componentStack);
   }
 
   public render() {

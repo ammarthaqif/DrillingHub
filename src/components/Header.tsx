@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useDrilling } from '../context/DrillingContext';
-import { UserRole } from '../types/drilling';
+import { UserRole, TubularItem } from '../types/drilling';
+import { NavTabKey } from './NavigationBar';
+import { GlobalEquipmentSearch } from './GlobalEquipmentSearch';
 import { 
   ShieldAlert, 
   ShieldCheck,
@@ -18,7 +20,9 @@ import {
   Database,
   LogOut,
   Lock,
-  Bell
+  Bell,
+  Users,
+  Search
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -32,6 +36,9 @@ interface HeaderProps {
   onOpenCampaignModal?: () => void;
   onOpenBackupModal?: () => void;
   onOpenNotificationCenter?: () => void;
+  onOpenOnlineUsersModal?: () => void;
+  onSelectItemForDrawer?: (item: TubularItem) => void;
+  onNavigateTab?: (tabKey: NavTabKey) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -45,6 +52,9 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenCampaignModal,
   onOpenBackupModal,
   onOpenNotificationCenter,
+  onOpenOnlineUsersModal,
+  onSelectItemForDrawer,
+  onNavigateTab
 }) => {
   const { 
     currentUser, 
@@ -53,6 +63,7 @@ export const Header: React.FC<HeaderProps> = ({
     logoutUser,
     alerts, 
     unreadNotificationCount,
+    onlineUserCount,
     isOffline, 
     setIsOffline, 
     offlineQueue, 
@@ -61,6 +72,8 @@ export const Header: React.FC<HeaderProps> = ({
     campaigns,
     activeCampaignId
   } = useDrilling();
+
+  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
 
   const userRole = currentUser?.role || 'Drilling Engineer';
   const canAccessAdmin = hasModuleAccess(userRole, 'admin');
@@ -71,11 +84,11 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header className="bg-[#0e0e11] border-b border-white/10 text-white sticky top-0 z-30 shadow-lg">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between h-16 gap-2 sm:gap-4">
           
           {/* Logo & Campaign Title */}
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-2.5 sm:space-x-3 shrink-0">
             <div className="w-9 h-9 rounded-lg bg-amber-500 flex items-center justify-center text-black font-bold shadow-md shadow-amber-500/20">
               <span className="font-bold text-base text-black">D</span>
             </div>
@@ -85,30 +98,47 @@ export const Header: React.FC<HeaderProps> = ({
                 {onOpenCampaignModal && (
                   <button
                     onClick={onOpenCampaignModal}
-                    className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 transition flex items-center gap-1"
+                    className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 transition hidden sm:flex items-center gap-1"
                     title="Click to Manage Campaigns & Projects"
                   >
                     <FolderKanban className="w-3 h-3 text-amber-400" />
-                    <span>{activeCampaign ? activeCampaign.code : 'All Campaigns'}</span>
+                    <span className="truncate max-w-[90px]">{activeCampaign ? activeCampaign.code : 'All Campaigns'}</span>
                   </button>
                 )}
               </div>
-              <p className="text-xs text-gray-400 hidden sm:block">Tubular, Accessory & Tool Campaign Inventory Engine</p>
+              <p className="text-[11px] text-gray-400 hidden xl:block">Tubular, Accessory & Tool Campaign Engine</p>
             </div>
           </div>
 
+          {/* Central Global Equipment Search Bar */}
+          <div className="flex-1 max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg hidden md:block">
+            <GlobalEquipmentSearch 
+              onSelectItemForDrawer={onSelectItemForDrawer}
+              onNavigateTab={onNavigateTab}
+            />
+          </div>
+
           {/* Quick Actions & Role Selector */}
-          <div className="flex items-center space-x-2 sm:space-x-3">
+          <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
             
+            {/* Mobile Search Button Toggle */}
+            <button
+              onClick={() => setIsMobileSearchOpen(prev => !prev)}
+              className="md:hidden p-2 text-amber-400 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition"
+              title="Search Equipment"
+            >
+              <Search className="w-4 h-4" />
+            </button>
+
             {/* Campaign Manager Trigger */}
             {onOpenCampaignModal && (
               <button
                 onClick={onOpenCampaignModal}
-                className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 border border-amber-500/30 transition shadow-sm"
+                className="hidden xl:flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 border border-amber-500/30 transition shadow-sm"
                 title="Manage Drilling Campaigns, Rigs & Supply Bases"
               >
                 <FolderKanban className="w-4 h-4 text-amber-400" />
-                <span className="hidden md:inline">Campaign Hub</span>
+                <span>Campaign Hub</span>
               </button>
             )}
 
@@ -116,18 +146,35 @@ export const Header: React.FC<HeaderProps> = ({
             {onOpenBackupModal && (
               <button
                 onClick={onOpenBackupModal}
-                className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 border border-blue-500/30 transition shadow-sm"
+                className="hidden xl:flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 border border-blue-500/30 transition shadow-sm"
                 title="Perform Daily/Weekly Backup & Database Restore"
               >
                 <Database className="w-4 h-4 text-blue-400" />
-                <span className="hidden md:inline">Vault & Backup</span>
+                <span>Vault</span>
+              </button>
+            )}
+
+            {/* Live Online Active Personnel Indicator */}
+            {onOpenOnlineUsersModal && (
+              <button
+                onClick={onOpenOnlineUsersModal}
+                className="flex items-center space-x-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded-xl bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/40 transition shadow-sm group"
+                title="View Real-Time Online Active Users & Rig Presence"
+              >
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <Users className="w-4 h-4 text-emerald-400" />
+                <span className="font-bold">{onlineUserCount}</span>
+                <span className="hidden sm:inline text-emerald-300/90 font-normal">Active</span>
               </button>
             )}
 
             {/* AI Campaign Auditor */}
             <button
               onClick={onOpenAiAuditModal}
-              className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-gradient-to-r from-amber-500/20 to-orange-500/10 text-amber-400 hover:from-amber-500/30 hover:to-orange-500/20 border border-amber-500/30 transition-all shadow-sm"
+              className="hidden sm:flex items-center space-x-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded-xl bg-gradient-to-r from-amber-500/20 to-orange-500/10 text-amber-400 hover:from-amber-500/30 hover:to-orange-500/20 border border-amber-500/30 transition-all shadow-sm"
               title="AI Campaign Readiness & Cert Assistant"
             >
               <Sparkles className="w-4 h-4 text-amber-400 animate-pulse" />
@@ -138,7 +185,7 @@ export const Header: React.FC<HeaderProps> = ({
             {onOpenAdminPanel && canAccessAdmin && (
               <button
                 onClick={onOpenAdminPanel}
-                className="relative flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium rounded-xl bg-white/5 text-gray-200 hover:bg-white/10 border border-white/10 transition"
+                className="relative flex items-center space-x-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-xl bg-white/5 text-gray-200 hover:bg-white/10 border border-white/10 transition"
                 title="System Admin & User Access Control"
               >
                 <ShieldCheck className="w-4 h-4 text-amber-400" />
@@ -155,11 +202,11 @@ export const Header: React.FC<HeaderProps> = ({
             {onOpenAuditReports && canAccessAudit && (
               <button
                 onClick={onOpenAuditReports}
-                className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium rounded-xl bg-white/5 text-gray-200 hover:bg-white/10 border border-white/10 transition"
+                className="hidden lg:flex items-center space-x-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-xl bg-white/5 text-gray-200 hover:bg-white/10 border border-white/10 transition"
                 title="Audit-Ready Tally & Compliance Reports"
               >
                 <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-                <span className="hidden lg:inline">Audit Reports</span>
+                <span className="hidden xl:inline">Reports</span>
               </button>
             )}
 
@@ -167,7 +214,7 @@ export const Header: React.FC<HeaderProps> = ({
             {onOpenNotificationCenter && (
               <button
                 onClick={onOpenNotificationCenter}
-                className={`relative flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium rounded-xl transition border ${
+                className={`relative flex items-center space-x-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-xl transition border ${
                   unreadNotificationCount > 0
                     ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30'
                     : 'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10'
@@ -187,7 +234,7 @@ export const Header: React.FC<HeaderProps> = ({
             {/* Alerts Button */}
             <button
               onClick={onOpenAlertsModal}
-              className={`relative flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium rounded-xl transition border ${
+              className={`relative flex items-center space-x-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-xl transition border ${
                 alerts.overdueCount > 0 
                   ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-rose-500/30' 
                   : 'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10'
@@ -205,7 +252,7 @@ export const Header: React.FC<HeaderProps> = ({
             {/* Scanner Button */}
             <button
               onClick={onOpenScannerModal}
-              className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium rounded-xl bg-white/5 text-gray-200 hover:bg-white/10 border border-white/10 transition"
+              className="flex items-center space-x-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-xl bg-white/5 text-gray-200 hover:bg-white/10 border border-white/10 transition"
               title="Scan Tag / QR Code"
             >
               <QrCode className="w-4 h-4 text-cyan-400" />
@@ -214,11 +261,11 @@ export const Header: React.FC<HeaderProps> = ({
 
             {/* Role Selector Dropdown */}
             <div className="relative group">
-              <div className="flex items-center space-x-2 bg-white/5 border border-white/10 hover:border-amber-500/50 px-3 py-1.5 rounded-xl cursor-pointer transition">
+              <div className="flex items-center space-x-2 bg-white/5 border border-white/10 hover:border-amber-500/50 px-2.5 sm:px-3 py-1.5 rounded-xl cursor-pointer transition">
                 <UserCheck className="w-4 h-4 text-amber-400" />
-                <div className="text-left text-[11px]">
-                  <p className="font-semibold text-white leading-none truncate max-w-[110px]">{currentUser.name}</p>
-                  <p className="text-[10px] text-amber-400 leading-tight truncate max-w-[110px]">{currentUser.role}</p>
+                <div className="text-left text-[11px] hidden md:block">
+                  <p className="font-semibold text-white leading-none truncate max-w-[90px]">{currentUser.name}</p>
+                  <p className="text-[10px] text-amber-400 leading-tight truncate max-w-[90px]">{currentUser.role}</p>
                 </div>
               </div>
 
@@ -257,20 +304,10 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             </div>
 
-            {/* Quick Lock Session Button */}
-            <button
-              onClick={() => logoutUser()}
-              className="flex items-center space-x-1 px-2.5 py-1.5 text-xs font-medium rounded-xl bg-rose-500/10 text-rose-300 hover:bg-rose-500/20 border border-rose-500/30 transition"
-              title="Lock Session / Exit Workspace"
-            >
-              <Lock className="w-3.5 h-3.5 text-rose-400" />
-              <span className="hidden xl:inline">Lock</span>
-            </button>
-
             {/* Add Item Button */}
             <button
               onClick={onOpenAddItem}
-              className="flex items-center space-x-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-amber-500 text-black hover:bg-amber-400 transition shadow-md"
+              className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-amber-500 text-black hover:bg-amber-400 transition shadow-md"
             >
               <Plus className="w-4 h-4" />
               <span className="hidden sm:inline">New Item</span>
@@ -278,8 +315,19 @@ export const Header: React.FC<HeaderProps> = ({
 
           </div>
         </div>
+
+        {/* Mobile Expanded Global Search Panel */}
+        {isMobileSearchOpen && (
+          <div className="md:hidden pb-3 pt-1 border-t border-white/10 animate-in fade-in duration-150">
+            <GlobalEquipmentSearch
+              onSelectItemForDrawer={onSelectItemForDrawer}
+              onNavigateTab={onNavigateTab}
+              isMobileExpanded={true}
+              onCloseMobile={() => setIsMobileSearchOpen(false)}
+            />
+          </div>
+        )}
       </div>
     </header>
   );
 };
-

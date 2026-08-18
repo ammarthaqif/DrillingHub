@@ -181,6 +181,24 @@
         "userId": { "type": "string" }
       },
       "required": ["id", "actionType", "timestamp", "userId"]
+    },
+    "presence": {
+      "title": "Active User Presence",
+      "description": "Real-time online active user session tracking and presence status",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "sessionId": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userRole": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "currentModule": { "type": "string" },
+        "status": { "type": "string" },
+        "loginTime": { "type": "number" },
+        "lastHeartbeat": { "type": "number" }
+      },
+      "required": ["id", "userId", "userName", "status", "lastHeartbeat"]
     }
   },
   "firestore": {
@@ -231,6 +249,10 @@
     "/audit_logs/{logId}": {
       "schema": { "$ref": "#/entities/audit_logs" },
       "description": "Immutable compliance and security audit logs"
+    },
+    "/presence/{presenceId}": {
+      "schema": { "$ref": "#/entities/presence" },
+      "description": "Real-time active user session heartbeats and operational presence"
     }
   }
 }

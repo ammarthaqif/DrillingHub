@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { useDrilling } from '../context/DrillingContext';
-import { HoleSection, MaintenanceStatus } from '../types/drilling';
+import { HoleSection, MaintenanceStatus, TubularItem } from '../types/drilling';
 import { KpiPerformanceView } from './KpiPerformanceView';
 import { InventoryStatusDonutChart } from './InventoryStatusDonutChart';
+import { InspectionCertificationAlertWidget } from './InspectionCertificationAlertWidget';
 import { 
   Package, 
   CheckCircle2, 
@@ -22,6 +23,7 @@ interface DashboardOverviewProps {
   onNavigateTab: (tab: string) => void;
   onOpenAiAudit: () => void;
   onOpenAlerts: () => void;
+  onSelectItem?: (item: TubularItem) => void;
 }
 
 const HOLE_SECTIONS: HoleSection[] = [
@@ -37,6 +39,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   onNavigateTab,
   onOpenAiAudit,
   onOpenAlerts,
+  onSelectItem,
 }) => {
   const { items, transfers, alerts, setSelectedHoleSection, setSelectedStatus } = useDrilling();
   const [dashboardView, setDashboardView] = useState<'overview' | 'kpi'>('overview');
@@ -235,6 +238,13 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           <InventoryStatusDonutChart 
             items={items} 
             onSelectStatusFilter={handleSelectStatusFilter} 
+          />
+
+          {/* 30-Day Inspection & Certification Visual Alert Radar Widget */}
+          <InspectionCertificationAlertWidget
+            onSelectItem={onSelectItem}
+            onNavigateTab={onNavigateTab}
+            onOpenAlerts={onOpenAlerts}
           />
 
           {/* Main Grid: Hole Section Readiness vs Quick Actions */}

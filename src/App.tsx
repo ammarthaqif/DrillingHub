@@ -22,10 +22,13 @@ import { RigSiteHub } from './components/RigSiteHub';
 import { CheckAndBalanceHub } from './components/CheckAndBalanceHub';
 import { CostControllerHub } from './components/CostControllerHub';
 import { NotificationCenterModal } from './components/NotificationCenterModal';
+import { OnlineActiveUsersModal } from './components/OnlineActiveUsersModal';
 import { AuthGate } from './components/AuthGate';
 import { ConcurrentLoginPromptModal } from './components/ConcurrentLoginPromptModal';
 import { CampaignManagerModal } from './components/CampaignManagerModal';
 import { BackupRestoreModal } from './components/BackupRestoreModal';
+import { NavigationBar, NavTabKey } from './components/NavigationBar';
+import { OfflineStatusIndicator } from './components/OfflineStatusIndicator';
 import { TubularItem } from './types/drilling';
 import { 
   LayoutDashboard, 
@@ -62,47 +65,41 @@ const MainAppContent: React.FC = () => {
     setIsOffline,
     offlineQueue,
     processSyncQueue,
-    hasModuleAccess
+    hasModuleAccess,
+    updateUserCurrentModule
   } = useDrilling();
 
   const userRole = currentUser?.role || 'Drilling Engineer';
 
-  const [activeNav, setActiveNav] = useState<
-    'dashboard' | 'materialsManagement' | 'inventory' | 'drillingEngineer' | 'supplyBaseMatco' | 'rigSiteMatco' | 'checkAndBalance' | 'costController' | 'holeSection' | 'surplus' | 'movement' | 'audit' | 'admin'
-  >('dashboard');
+  const [activeNav, setActiveNav] = useState<NavTabKey>('dashboard');
 
   const pendingApprovalsCount = allUsers.filter(u => u.status === 'Pending Email Verification' || u.status === 'Pending Admin Approval').length;
 
-  // Module Navigation Definitions
-  const navTabs: Array<{
-    key: 'dashboard' | 'materialsManagement' | 'inventory' | 'drillingEngineer' | 'supplyBaseMatco' | 'rigSiteMatco' | 'checkAndBalance' | 'costController' | 'holeSection' | 'surplus' | 'movement' | 'audit' | 'admin';
-    label: string;
-    icon: React.ReactNode;
-    badge?: number;
-  }> = [
-    { key: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
-    { key: 'materialsManagement', label: 'Materials Management', icon: <Package className="w-4 h-4 text-emerald-400" />, badge: items.length },
-    { key: 'inventory', label: 'Tubulars & Tools', icon: <HardHat className="w-4 h-4" /> },
-    { key: 'drillingEngineer', label: 'Drilling Engineer Hub', icon: <Calculator className="w-4 h-4 text-amber-400" /> },
-    { key: 'costController', label: 'Cost Controller Hub', icon: <Receipt className="w-4 h-4 text-emerald-400" />, badge: chargeCodes?.length },
-    { key: 'supplyBaseMatco', label: 'Supply Base Matco', icon: <Building2 className="w-4 h-4 text-emerald-400" /> },
-    { key: 'rigSiteMatco', label: 'Rig Site Matco', icon: <Anchor className="w-4 h-4 text-cyan-400" /> },
-    { key: 'checkAndBalance', label: 'Check & Balance Matrix', icon: <ShieldCheck className="w-4 h-4 text-purple-400" /> },
-    { key: 'holeSection', label: 'Hole Section Planner', icon: <Layers className="w-4 h-4 text-cyan-400" /> },
-    { key: 'surplus', label: 'Surplus & Backloads', icon: <Clock className="w-4 h-4 text-amber-400" /> },
-    { key: 'movement', label: 'Material Transfers', icon: <Truck className="w-4 h-4 text-emerald-400" />, badge: transfers.length },
-    { key: 'audit', label: 'Audit Reports', icon: <FileCheck className="w-4 h-4 text-purple-400" /> },
-    { key: 'admin', label: 'Admin & Access Control', icon: <ShieldCheck className="w-4 h-4 text-amber-400" />, badge: pendingApprovalsCount > 0 ? pendingApprovalsCount : undefined },
-  ];
-
-  // Filter allowed tabs based on role permissions
-  const allowedNavTabs = navTabs.filter(tab => hasModuleAccess(userRole, tab.key));
+  // Sync current active module for real-time presence tracking
+  React.useEffect(() => {
+    const moduleMap: Record<NavTabKey, string> = {
+      dashboard: 'Dashboard Overview',
+      materialsManagement: 'Materials & Equipment Hub',
+      inventory: 'OCTG Tubular Inventory',
+      drillingEngineer: 'Casing Design & Hole Section Planner',
+      supplyBaseMatco: 'Supply Base Dispatch Bay',
+      rigSiteMatco: 'Rig Site Backload & Callout Hub',
+      checkAndBalance: 'Cross-Department Verification Hub',
+      costController: 'Well AFE Budgets & Cost Allocation',
+      holeSection: 'Casing & Hole Section Program',
+      surplus: 'Surplus & Backload Disposition Manager',
+      movement: 'Cross-Site Material Movement Tracker',
+      audit: 'Compliance & Tally Audit Reports',
+      admin: 'System Administrator Console'
+    };
+    const mod = moduleMap[activeNav] || 'Operational Workspace';
+    updateUserCurrentModule(mod);
+  }, [activeNav, updateUserCurrentModule]);
 
   // Automatically adjust active tab if current role is restricted from activeNav
   React.useEffect(() => {
     if (!hasModuleAccess(userRole, activeNav)) {
-      const fallback = allowedNavTabs[0]?.key || 'dashboard';
-      setActiveNav(fallback);
+      setActiveNav('dashboard');
     }
   }, [userRole, activeNav, hasModuleAccess]);
 
@@ -120,6 +117,7 @@ const MainAppContent: React.FC = () => {
   const [isCampaignModalOpen, setIsCampaignModalOpen] = useState(false);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
+  const [isOnlineUsersModalOpen, setIsOnlineUsersModalOpen] = useState(false);
 
   if (!isAuthenticated) {
     return <AuthGate />;
@@ -133,6 +131,9 @@ const MainAppContent: React.FC = () => {
   return (
     <div className="min-h-screen bg-[#0a0a0b] text-gray-200 flex flex-col font-sans antialiased">
       
+      {/* Persistent Offline Mode & Sync Status Indicator */}
+      <OfflineStatusIndicator />
+
       {/* Header Bar */}
       <Header
         onOpenAddItem={() => {
@@ -151,68 +152,20 @@ const MainAppContent: React.FC = () => {
         onOpenCampaignModal={() => setIsCampaignModalOpen(true)}
         onOpenBackupModal={() => setIsBackupModalOpen(true)}
         onOpenNotificationCenter={() => setIsNotificationModalOpen(true)}
+        onOpenOnlineUsersModal={() => setIsOnlineUsersModalOpen(true)}
+        onSelectItemForDrawer={(item) => setSelectedItemForDrawer(item)}
+        onNavigateTab={(tab) => setActiveNav(tab)}
       />
 
       {/* Role Banner & Department Badge */}
       <RoleBanner />
 
       {/* Navigation Sub-Header */}
-      <nav className="bg-[#0e0e11] border-b border-white/10 sticky top-16 z-30 backdrop-blur-md px-4 sm:px-8">
-        <div className="max-w-7xl mx-auto flex items-center justify-between overflow-x-auto scrollbar-none py-2 gap-2">
-          
-          <div className="flex items-center space-x-1 sm:space-x-2 shrink-0">
-            {allowedNavTabs.map((tab) => {
-              const isActive = activeNav === tab.key;
-              return (
-                <button
-                  key={tab.key}
-                  onClick={() => setActiveNav(tab.key)}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 ${
-                    isActive
-                      ? 'bg-amber-500 text-black shadow-md'
-                      : 'text-gray-400 hover:text-white hover:bg-white/5'
-                  }`}
-                >
-                  {tab.icon}
-                  <span>{tab.label}</span>
-                  {tab.badge !== undefined && (
-                    <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold ${
-                      isActive ? 'bg-black/20 text-black' : 'bg-white/10 text-gray-300'
-                    }`}>
-                      {tab.badge}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Offline Sync Controls */}
-          <div className="flex items-center space-x-2 shrink-0">
-            <button
-              onClick={() => setIsOffline(!isOffline)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-medium flex items-center space-x-1.5 border transition ${
-                isOffline ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' : 'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10'
-              }`}
-              title="Toggle Mobile Offline Mode"
-            >
-              {isOffline ? <WifiOff className="w-3.5 h-3.5 text-amber-400" /> : <Wifi className="w-3.5 h-3.5 text-emerald-400" />}
-              <span className="hidden sm:inline">{isOffline ? 'Offline Mode' : 'Online'}</span>
-            </button>
-
-            {offlineQueue.length > 0 && (
-              <button
-                onClick={processSyncQueue}
-                className="px-3 py-1.5 rounded-xl text-xs font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/30 transition flex items-center space-x-1.5 animate-pulse"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>Sync ({offlineQueue.length})</span>
-              </button>
-            )}
-          </div>
-
-        </div>
-      </nav>
+      <NavigationBar
+        activeNav={activeNav}
+        onSelectNav={(key) => setActiveNav(key)}
+        pendingApprovalsCount={pendingApprovalsCount}
+      />
 
       {/* Main Screen Body View */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-8 space-y-6">
@@ -222,6 +175,7 @@ const MainAppContent: React.FC = () => {
             onNavigateTab={(tab) => setActiveNav(tab as any)}
             onOpenAiAudit={() => setIsAiAuditModalOpen(true)}
             onOpenAlerts={() => setIsAlertsModalOpen(true)}
+            onSelectItem={(item) => setSelectedItemForDrawer(item)}
           />
         )}
 
@@ -370,6 +324,12 @@ const MainAppContent: React.FC = () => {
       <NotificationCenterModal
         isOpen={isNotificationModalOpen}
         onClose={() => setIsNotificationModalOpen(false)}
+        onNavigateTab={(tab) => setActiveNav(tab as any)}
+      />
+
+      <OnlineActiveUsersModal
+        isOpen={isOnlineUsersModalOpen}
+        onClose={() => setIsOnlineUsersModalOpen(false)}
         onNavigateTab={(tab) => setActiveNav(tab as any)}
       />
 

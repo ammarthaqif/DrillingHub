@@ -99,6 +99,13 @@ service cloud.firestore {
       allow create: if isValidId(logId);
       allow update, delete: if false; // Immutable audit trail
     }
+
+    // Presence Collection - Real-time Online Active User Sessions
+    match /presence/{presenceId} {
+      allow read: if true;
+      allow create, update: if isValidId(presenceId);
+      allow delete: if isValidId(presenceId);
+    }
   }
 }
 
