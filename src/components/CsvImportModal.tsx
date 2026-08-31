@@ -121,7 +121,10 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({ onClose, default
     availableMaintenanceStatuses,
     logAuditTrail,
     currentUser,
-    addSystemNotification
+    addSystemNotification,
+    replaceInventoryWithExcel,
+    clearAllInventoryData,
+    isCleanSlate
   } = useDrilling();
 
   const [activeSourceTab, setActiveSourceTab] = useState<ImportSourceTab>('upload');
@@ -148,6 +151,7 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({ onClose, default
   const [selectedWellId, setSelectedWellId] = useState<string>('');
   const [defaultLocationOverride, setDefaultLocationOverride] = useState<LocationType | ''>('');
   const [duplicateStrategy, setDuplicateStrategy] = useState<DuplicateStrategy>('skip');
+  const [importMode, setImportMode] = useState<'append' | 'clean_slate'>('append');
 
   // Copy Feedback
   const [copiedTemplate, setCopiedTemplate] = useState(false);
@@ -714,20 +718,24 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({ onClose, default
       addedCount++;
     });
 
-    if (itemsToAdd.length > 0) {
-      bulkAddItems(itemsToAdd);
+    if (importMode === 'clean_slate') {
+      replaceInventoryWithExcel(itemsToAdd);
+    } else {
+      if (itemsToAdd.length > 0) {
+        bulkAddItems(itemsToAdd);
+      }
     }
 
     logAuditTrail(
       'ITEM_CREATED',
       `IMPORT-${Date.now().toString().slice(-6)}`,
-      `Bulk imported ${addedCount} new items, updated ${updatedCount} existing items from ${fileName || 'CSV data'}. Strategy: ${duplicateStrategy}.`,
+      `Bulk imported ${addedCount} new items, updated ${updatedCount} existing items from ${fileName || 'CSV data'} in ${importMode === 'clean_slate' ? 'CLEAN SLATE' : 'APPEND'} mode. Strategy: ${duplicateStrategy}.`,
       `User: ${currentUser?.name} (${currentUser?.role})`
     );
 
     addSystemNotification({
-      title: 'CSV Inventory Import Completed',
-      message: `Successfully processed ${selectedRows.length} tubular records: ${addedCount} new additions, ${updatedCount} updates, ${skippedCount} skipped.`,
+      title: importMode === 'clean_slate' ? 'Clean Slate Master Inventory Imported' : 'CSV Inventory Import Completed',
+      message: `Successfully processed ${selectedRows.length} tubular records: ${addedCount} new additions, ${updatedCount} updates, ${skippedCount} skipped. ${importMode === 'clean_slate' ? 'Database initialized with real spreadsheet data.' : ''}`,
       category: 'GENERAL',
       severity: 'success',
       linkNav: 'inventory',
@@ -1193,6 +1201,45 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({ onClose, default
                       <option value="update">Update Existing Items</option>
                       <option value="append_suffix">Append Unique Suffix</option>
                     </select>
+                  </div>
+
+                  {/* Database Mode: Append vs Clean Slate */}
+                  <div className="space-y-1 sm:col-span-2 md:col-span-4 mt-1 p-3 rounded-xl bg-black/30 border border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <span className="font-semibold text-white text-xs flex items-center space-x-1.5">
+                        <Database className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Database Import Strategy:</span>
+                      </span>
+                      <p className="text-[11px] text-gray-400 mt-0.5">
+                        Choose whether to append these rows to existing inventory, or wipe dummy sample data and start completely fresh.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center space-x-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setImportMode('append')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                          importMode === 'append'
+                            ? 'bg-amber-500 text-black border-amber-500 font-bold'
+                            : 'bg-white/5 text-gray-300 border-white/10 hover:text-white'
+                        }`}
+                      >
+                        Append to Existing
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setImportMode('clean_slate')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition flex items-center space-x-1.5 ${
+                          importMode === 'clean_slate'
+                            ? 'bg-rose-500 text-white border-rose-500 font-bold shadow-lg shadow-rose-500/20'
+                            : 'bg-rose-500/10 text-rose-300 border-rose-500/30 hover:bg-rose-500/20'
+                        }`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                        <span>Replace Dummy Data (Clean Slate)</span>
+                      </button>
+                    </div>
                   </div>
 
                 </div>

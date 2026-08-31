@@ -440,10 +440,51 @@ class EmbeddedRealtimeDatabase {
     }
   }
 
+  public isCleanSlate(): boolean {
+    try {
+      return localStorage.getItem('drillspec_is_clean_slate') === 'true';
+    } catch {
+      return false;
+    }
+  }
+
+  public setCleanSlate(enabled: boolean) {
+    try {
+      if (enabled) {
+        localStorage.setItem('drillspec_is_clean_slate', 'true');
+      } else {
+        localStorage.removeItem('drillspec_is_clean_slate');
+      }
+    } catch (e) {
+      console.warn('Error setting clean slate state', e);
+    }
+  }
+
+  public async clearAllItems() {
+    this.setCleanSlate(true);
+    await this.saveItems([]);
+  }
+
+  public async clearAllOperational() {
+    this.setCleanSlate(true);
+    await this.saveItems([]);
+    await this.saveTransfers([]);
+    await this.saveBackloads([]);
+    try {
+      localStorage.setItem('drillspec_surplus_bookings', '[]');
+      localStorage.setItem('drillspec_requisitions', '[]');
+      localStorage.setItem('drillspec_callouts', '[]');
+    } catch {}
+  }
+
   public loadItems(): TubularItem[] | null {
     try {
+      const isClean = this.isCleanSlate();
       const raw = localStorage.getItem('drillspec_items');
-      return safeJsonParse(raw, null);
+      if (raw !== null) {
+        return safeJsonParse(raw, isClean ? [] : null);
+      }
+      return isClean ? [] : null;
     } catch {
       return null;
     }

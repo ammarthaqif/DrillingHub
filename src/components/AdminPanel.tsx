@@ -3,6 +3,8 @@ import { useDrilling } from '../context/DrillingContext';
 import { UserRole, UserAccountStatus, UserProfile, LocationType } from '../types/drilling';
 import { DropdownCategoryKey } from '../db/embeddedDb';
 import { ApprovedUsersUploadModal } from './ApprovedUsersUploadModal';
+import { ClearDatabaseModal } from './ClearDatabaseModal';
+import { CsvImportModal } from './CsvImportModal';
 import { 
   Users, 
   ShieldCheck, 
@@ -43,7 +45,8 @@ import {
   ListFilter,
   Pencil,
   UserX,
-  UserCheck
+  UserCheck,
+  FileSpreadsheet
 } from 'lucide-react';
 
 export const AdminPanel: React.FC = () => {
@@ -87,7 +90,10 @@ export const AdminPanel: React.FC = () => {
     hasModuleAccess,
     onlineUsers,
     onlineUserCount,
-    terminateUserSession
+    terminateUserSession,
+    items,
+    transfers,
+    isCleanSlate
   } = useDrilling();
 
   const [activeTab, setActiveTab] = useState<'users' | 'emailConfig' | 'dropdowns' | 'sysConfig' | 'database' | 'moduleAccess'>('users');
@@ -99,6 +105,8 @@ export const AdminPanel: React.FC = () => {
   
   // Upload Excel Approved Users Modal State
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showClearDbModal, setShowClearDbModal] = useState(false);
+  const [showCsvImportModal, setShowCsvImportModal] = useState(false);
 
   // Registration Form State
   const [showRegisterModal, setShowRegisterModal] = useState(false);
@@ -1282,6 +1290,81 @@ export const AdminPanel: React.FC = () => {
             </div>
           </div>
 
+          {/* Clean Slate & Real Excel Master Data Migration Hub */}
+          <div className="bg-gradient-to-br from-amber-500/10 via-[#141417] to-emerald-950/20 border border-amber-500/30 rounded-2xl p-6 shadow-xl space-y-5">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/10 pb-4">
+              <div className="flex items-start space-x-3.5">
+                <div className="p-3 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-400">
+                  <FileSpreadsheet className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <h3 className="font-bold text-white text-base">Operational Master Data & Clean Slate Hub</h3>
+                    {isCleanSlate ? (
+                      <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-[10px] font-mono font-bold uppercase">
+                        Clean Slate Active
+                      </span>
+                    ) : (
+                      <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40 text-[10px] font-mono font-bold uppercase">
+                        Sample Baseline Active
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-300 mt-1">
+                    Purge dummy demo tubulars and start fresh by importing your company's live Excel / CSV master inventory.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-3 shrink-0">
+                <button
+                  onClick={() => setShowClearDbModal(true)}
+                  className="px-4 py-2.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-300 text-xs font-bold transition flex items-center space-x-2 shadow-lg shadow-rose-500/10"
+                >
+                  <Trash2 className="w-4 h-4 text-rose-400" />
+                  <span>Clear Dummy Data</span>
+                </button>
+
+                <button
+                  onClick={() => setShowCsvImportModal(true)}
+                  className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold transition flex items-center space-x-2 shadow-lg shadow-amber-500/20"
+                >
+                  <Upload className="w-4 h-4" />
+                  <span>Import Excel / CSV</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+              <div className="p-3.5 bg-black/40 border border-white/5 rounded-xl">
+                <span className="text-[10px] text-gray-400 uppercase font-semibold">Active OCTG Inventory</span>
+                <p className="text-xl font-bold text-white mt-1">{items.length} <span className="text-xs font-normal text-gray-400">items</span></p>
+                <p className="text-[11px] text-gray-400 mt-0.5">
+                  {isCleanSlate ? 'Operating in live clean mode' : 'Using default sample demo items'}
+                </p>
+              </div>
+
+              <div className="p-3.5 bg-black/40 border border-white/5 rounded-xl">
+                <span className="text-[10px] text-gray-400 uppercase font-semibold">Active Transfer Manifests</span>
+                <p className="text-xl font-bold text-amber-400 mt-1">{transfers.length} <span className="text-xs font-normal text-gray-400">manifests</span></p>
+                <p className="text-[11px] text-gray-400 mt-0.5">Material movement and backload records</p>
+              </div>
+
+              <div className="p-3.5 bg-black/40 border border-white/5 rounded-xl flex flex-col justify-between">
+                <span className="text-[10px] text-gray-400 uppercase font-semibold">Excel Master Schema</span>
+                <div className="pt-2">
+                  <button
+                    onClick={() => setShowCsvImportModal(true)}
+                    className="w-full px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-white text-[11px] font-semibold transition flex items-center justify-center space-x-1.5"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Download Blank Template</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Embedded Local Storage & Backup Tools */}
           <div className="bg-[#111114] border border-white/10 rounded-2xl p-6 space-y-6">
             <div className="border-b border-white/10 pb-4 flex items-center justify-between">
@@ -1844,6 +1927,23 @@ export const AdminPanel: React.FC = () => {
         isOpen={showUploadModal}
         onClose={() => setShowUploadModal(false)}
       />
+
+      {/* Clear Database Modal */}
+      <ClearDatabaseModal
+        isOpen={showClearDbModal}
+        onClose={() => setShowClearDbModal(false)}
+        onOpenExcelImport={() => {
+          setShowClearDbModal(false);
+          setShowCsvImportModal(true);
+        }}
+      />
+
+      {/* Excel/CSV Master Importer Modal */}
+      {showCsvImportModal && (
+        <CsvImportModal
+          onClose={() => setShowCsvImportModal(false)}
+        />
+      )}
 
     </div>
   );

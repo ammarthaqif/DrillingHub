@@ -647,7 +647,9 @@ export interface AuditTrailLog {
     | 'CHARGE_CODE_DELETED'
     | 'CHARGE_CODES_IMPORTED'
     | 'DATABASE_BACKUP_EXPORTED'
-    | 'DATABASE_RESTORE_PERFORMED';
+    | 'DATABASE_RESTORE_PERFORMED'
+    | 'DATABASE_CLEARED'
+    | 'INVENTORY_PURGED';
   referenceId: string; // e.g. Manifest # "BLM-2026-8841", Item # "CSG-1338-001"
   details: string;
   notes?: string;

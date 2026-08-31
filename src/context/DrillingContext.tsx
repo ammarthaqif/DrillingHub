@@ -127,6 +127,11 @@ interface DrillingContextType {
   removeCorporateDomain: (domain: string) => void;
   exportDatabaseSnapshot: () => void;
   resetDatabaseToInitial: () => void;
+  clearAllInventoryData: () => Promise<{ success: boolean; count: number; message: string }>;
+  replaceInventoryWithExcel: (newItemsData: Omit<TubularItem, 'id' | 'updatedAt' | 'qrCodeData' | 'inspectionHistory' | 'maintenanceLogs'>[]) => Promise<{ success: boolean; count: number; message: string }>;
+  purgeEntireOperationalDatabase: (keepAdmins?: boolean) => Promise<{ success: boolean; message: string }>;
+  restoreSampleDemoBaseline: () => void;
+  isCleanSlate: boolean;
 
   // Real-time Active Online Users & Operational Presence
   onlineUsers: OnlineUserPresence[];
@@ -1487,8 +1492,15 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return embeddedDb.loadConfig() || DEFAULT_CONFIG;
   });
 
-  // Items state
+  // Clean slate flag & Items state
+  const [isCleanSlate, setIsCleanSlate] = useState<boolean>(() => {
+    return embeddedDb.isCleanSlate();
+  });
+
   const [items, setItems] = useState<TubularItem[]>(() => {
+    if (embeddedDb.isCleanSlate()) {
+      return embeddedDb.loadItems() || [];
+    }
     return embeddedDb.loadItems() || INITIAL_ITEMS;
   });
 
@@ -2588,10 +2600,12 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         });
         setItems(fetchedItems);
       } else {
-        // Seed initial items to Firestore if empty
-        INITIAL_ITEMS.forEach((it) => {
-          setDoc(doc(db, 'items', it.id), safeClone(it)).catch(() => {});
-        });
+        if (!embeddedDb.isCleanSlate()) {
+          // Seed initial items to Firestore if empty and not in clean slate mode
+          INITIAL_ITEMS.forEach((it) => {
+            setDoc(doc(db, 'items', it.id), safeClone(it)).catch(() => {});
+          });
+        }
       }
     }, (err) => {
       console.warn('Firestore items sync offline fallback:', err?.message || String(err));
@@ -2606,9 +2620,11 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         });
         setTransfers(fetchedTransfers);
       } else {
-        INITIAL_TRANSFERS.forEach((tr) => {
-          setDoc(doc(db, 'transfers', tr.id), safeClone(tr)).catch(() => {});
-        });
+        if (!embeddedDb.isCleanSlate()) {
+          INITIAL_TRANSFERS.forEach((tr) => {
+            setDoc(doc(db, 'transfers', tr.id), safeClone(tr)).catch(() => {});
+          });
+        }
       }
     }, (err) => {
       console.warn('Firestore transfers sync offline fallback:', err?.message || String(err));
@@ -3718,21 +3734,212 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     URL.revokeObjectURL(url);
   };
 
+  const clearAllInventoryData = async (): Promise<{ success: boolean; count: number; message: string }> => {
+    const prevCount = items.length;
+    embeddedDb.setCleanSlate(true);
+    setIsCleanSlate(true);
+    setItems([]);
+    await embeddedDb.clearAllItems();
+
+    // Delete items from Firestore if online
+    if (db && !isOffline) {
+      try {
+        const itemSnap = await getDocs(collection(db, 'items'));
+        const batch = writeBatch(db);
+        itemSnap.forEach(docSnap => {
+          batch.delete(docSnap.ref);
+        });
+        await batch.commit();
+      } catch (err) {
+        console.warn('Firestore purge error:', err);
+      }
+    }
+
+    logAuditTrail(
+      'INVENTORY_PURGED',
+      'INVENTORY_CLEAR',
+      `Purged all ${prevCount} dummy/existing inventory items. System is in Clean Slate mode ready for real Excel data import.`,
+      `Executed by ${currentUser.name} (${currentUser.role})`
+    );
+
+    addSystemNotification({
+      title: 'Inventory Cleared for Fresh Excel Import',
+      message: `Successfully removed ${prevCount} tubular item records. Database is clear and ready for real Excel master data ingestion.`,
+      category: 'GENERAL',
+      severity: 'info'
+    });
+
+    return {
+      success: true,
+      count: prevCount,
+      message: `Successfully cleared ${prevCount} dummy items. Inventory is now at 0 items and ready for Excel data.`
+    };
+  };
+
+  const replaceInventoryWithExcel = async (
+    newItemsData: Omit<TubularItem, 'id' | 'updatedAt' | 'qrCodeData' | 'inspectionHistory' | 'maintenanceLogs'>[]
+  ): Promise<{ success: boolean; count: number; message: string }> => {
+    embeddedDb.setCleanSlate(true);
+    setIsCleanSlate(true);
+
+    // Delete existing items in Firestore
+    if (db && !isOffline) {
+      try {
+        const itemSnap = await getDocs(collection(db, 'items'));
+        const batch = writeBatch(db);
+        itemSnap.forEach(docSnap => {
+          batch.delete(docSnap.ref);
+        });
+        await batch.commit();
+      } catch (err) {
+        console.warn('Firestore batch delete error during excel replace:', err);
+      }
+    }
+
+    // Build new items
+    const newItems: TubularItem[] = newItemsData.map((itemData, idx) => {
+      const id = `item-${Date.now()}-${idx}`;
+      const qrCodeData = `TAG:${itemData.tagNumber}|HT:${itemData.heatNumber}|LOC:${(itemData.currentLocation || 'BASE').split(' ')[0].toUpperCase()}`;
+      return {
+        ...itemData,
+        id,
+        qrCodeData,
+        updatedAt: new Date().toISOString(),
+        inspectionHistory: itemData.lastInspectionDate ? [
+          {
+            id: `insp-init-${Date.now()}-${idx}`,
+            date: itemData.lastInspectionDate,
+            inspectorName: 'Master Excel QA Import',
+            inspectionType: 'Full Length Ultrasonic',
+            result: 'Pass',
+            certNumber: itemData.inspectionCertNumber || 'CERT-MASTER-EXCEL',
+            nextInspectionDue: itemData.nextInspectionDue || '2027-06-01',
+            remarks: 'Imported via Master Database Excel Clean-Slate Upload.',
+          }
+        ] : [],
+        maintenanceLogs: [],
+      };
+    });
+
+    setItems(newItems);
+    await embeddedDb.saveItems(newItems);
+
+    if (db && !isOffline) {
+      try {
+        const batch = writeBatch(db);
+        newItems.forEach(it => {
+          batch.set(doc(db, 'items', it.id), safeClone(it));
+        });
+        await batch.commit();
+      } catch (err) {
+        console.warn('Firestore batch write error for excel replace:', err);
+      }
+    }
+
+    logAuditTrail(
+      'ITEM_CREATED',
+      'BULK_EXCEL_REPLACE',
+      `Replaced database with ${newItems.length} real OCTG items from Excel master spreadsheet.`,
+      `Source: Excel/CSV Import Engine | User: ${currentUser.name}`
+    );
+
+    addSystemNotification({
+      title: 'Real Excel Data Ingestion Complete',
+      message: `Successfully populated ${newItems.length} operational tubular records from your Excel database.`,
+      category: 'GENERAL',
+      severity: 'success'
+    });
+
+    return {
+      success: true,
+      count: newItems.length,
+      message: `Successfully replaced inventory with ${newItems.length} real records from Excel.`
+    };
+  };
+
+  const purgeEntireOperationalDatabase = async (keepAdmins: boolean = true): Promise<{ success: boolean; message: string }> => {
+    embeddedDb.setCleanSlate(true);
+    setIsCleanSlate(true);
+    setItems([]);
+    setTransfers([]);
+    setRigBackloads([]);
+    setSurplusBookings([]);
+    setMaterialRequisitions([]);
+    setRigCallouts([]);
+    setEmailOutbox([]);
+    await embeddedDb.clearAllOperational();
+
+    if (db && !isOffline) {
+      try {
+        const collectionsToPurge = ['items', 'transfers', 'rig_backloads', 'surplus_bookings', 'material_requisitions', 'rig_callouts'];
+        for (const colName of collectionsToPurge) {
+          const snap = await getDocs(collection(db, colName));
+          const batch = writeBatch(db);
+          snap.forEach(d => batch.delete(d.ref));
+          await batch.commit();
+        }
+      } catch (err) {
+        console.warn('Firestore purge error:', err);
+      }
+    }
+
+    logAuditTrail(
+      'DATABASE_CLEARED',
+      'FULL_PURGE',
+      `Purged all operational dummy data (tubulars, manifests, backloads, callouts, requisitions). Database is clean.`,
+      `User: ${currentUser.name} (${currentUser.role})`
+    );
+
+    addSystemNotification({
+      title: 'Complete Database Clean Slate',
+      message: 'All dummy operational data, manifests, and inventory records have been purged. You can now import real data.',
+      category: 'GENERAL',
+      severity: 'warning'
+    });
+
+    return {
+      success: true,
+      message: 'Complete operational database has been purged. System is ready for live operational deployment and Excel data.'
+    };
+  };
+
+  const restoreSampleDemoBaseline = () => {
+    embeddedDb.setCleanSlate(false);
+    setIsCleanSlate(false);
+    setItems(INITIAL_ITEMS);
+    setTransfers(INITIAL_TRANSFERS);
+    const resetUsers = INITIAL_USERS.map(u => ({ ...u, status: 'Active Approved' as const, isCorporateVerified: true }));
+    setAllUsers(resetUsers);
+    setEmailOutbox([]);
+    setSystemConfig(DEFAULT_CONFIG);
+    embeddedDb.saveItems(INITIAL_ITEMS);
+    embeddedDb.saveTransfers(INITIAL_TRANSFERS);
+
+    if (db && !isOffline) {
+      INITIAL_ITEMS.forEach(it => saveItemToFirestore(it));
+      INITIAL_TRANSFERS.forEach(tr => saveTransferToFirestore(tr));
+      resetUsers.forEach(u => saveUserToFirestore(u));
+      saveConfigToFirestore(DEFAULT_CONFIG);
+    }
+
+    logAuditTrail(
+      'DATABASE_RESTORE_PERFORMED',
+      'DEMO_BASELINE',
+      'Restored sample demo baseline dataset with standard OCTG tubular items and demo manifests.',
+      `User: ${currentUser.name}`
+    );
+
+    addSystemNotification({
+      title: 'Demo Baseline Restored',
+      message: 'Sample demo tubulars, manifests, and users have been restored.',
+      category: 'GENERAL',
+      severity: 'info'
+    });
+  };
+
   const resetDatabaseToInitial = () => {
     if (window.confirm('Reset database to default campaign baseline? Custom items and users will be replaced.')) {
-      setItems(INITIAL_ITEMS);
-      setTransfers(INITIAL_TRANSFERS);
-      const resetUsers = INITIAL_USERS.map(u => ({ ...u, status: 'Active Approved' as const, isCorporateVerified: true }));
-      setAllUsers(resetUsers);
-      setEmailOutbox([]);
-      setSystemConfig(DEFAULT_CONFIG);
-
-      if (!isOffline) {
-        INITIAL_ITEMS.forEach(it => saveItemToFirestore(it));
-        INITIAL_TRANSFERS.forEach(tr => saveTransferToFirestore(tr));
-        resetUsers.forEach(u => saveUserToFirestore(u));
-        saveConfigToFirestore(DEFAULT_CONFIG);
-      }
+      restoreSampleDemoBaseline();
     }
   };
 
@@ -4712,6 +4919,11 @@ export const DrillingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       removeCorporateDomain,
       exportDatabaseSnapshot,
       resetDatabaseToInitial,
+      clearAllInventoryData,
+      replaceInventoryWithExcel,
+      purgeEntireOperationalDatabase,
+      restoreSampleDemoBaseline,
+      isCleanSlate,
 
       // Campaign & Multi-Project Management
       campaigns,
