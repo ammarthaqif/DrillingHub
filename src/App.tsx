@@ -261,7 +261,11 @@ const MainAppContent: React.FC = () => {
       {/* Footer */}
       <footer className="bg-slate-900 border-t border-slate-800 py-4 px-6 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>Drilling Campaign Tubular & Tool Inventory Management System v2.4</span>
+          <div className="flex items-center space-x-2">
+            <span>Drilling Campaign Tubular & Tool Inventory Management System v2.4</span>
+            <span className="hidden sm:inline text-slate-700">•</span>
+            <span className="text-slate-400">Developed by <strong className="text-amber-400 font-semibold">Ammar Thaqif</strong></span>
+          </div>
           <span>Compliance: API Spec 5CT / DS-1 / API RP 7G • Multi-Department RBAC Enabled</span>
         </div>
       </footer>

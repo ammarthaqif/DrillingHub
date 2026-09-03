@@ -73,7 +73,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     <div className="space-y-6">
       
       {/* Dashboard Mode Sub-Tab Switcher Header */}
-      <div className="flex items-center justify-between border-b border-white/10 pb-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-white/10 pb-3 gap-3">
         <div className="flex items-center space-x-2">
           <button
             onClick={() => setDashboardView('overview')}
@@ -100,9 +100,15 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </button>
         </div>
 
-        <span className="text-[11px] text-gray-400 hidden sm:inline">
-          {dashboardView === 'overview' ? 'Real-time campaign inventory readiness' : 'D3 turnaround time analytics & SLA thresholds'}
-        </span>
+        <div className="flex items-center space-x-3">
+          <span className="text-[11px] text-gray-400 hidden md:inline">
+            {dashboardView === 'overview' ? 'Real-time campaign inventory readiness' : 'D3 turnaround time analytics & SLA thresholds'}
+          </span>
+          <div className="flex items-center space-x-1.5 text-xs text-gray-400 bg-white/5 border border-white/10 px-2.5 py-1 rounded-lg">
+            <span className="text-[11px] text-gray-400">Developed by</span>
+            <span className="text-amber-400 font-bold text-xs tracking-wide">Ammar Thaqif</span>
+          </div>
+        </div>
       </div>
 
       {dashboardView === 'kpi' ? (
@@ -393,6 +399,19 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Dashboard Developer Signature */}
+      <div className="pt-4 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-gray-400">
+        <div className="flex items-center space-x-2">
+          <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="text-gray-300 font-medium">DrillSpec Campaign Tubular Intelligence System</span>
+        </div>
+
+        <div className="flex items-center space-x-2 bg-black/40 border border-white/10 px-3.5 py-1.5 rounded-xl shadow-sm">
+          <span className="text-gray-400 text-xs">Developed by</span>
+          <span className="text-amber-400 font-bold tracking-wide">Ammar Thaqif</span>
+        </div>
+      </div>
 
     </div>
   );
