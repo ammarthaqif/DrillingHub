@@ -199,6 +199,36 @@
         "lastHeartbeat": { "type": "number" }
       },
       "required": ["id", "userId", "userName", "status", "lastHeartbeat"]
+    },
+    "charge_codes": {
+      "title": "Well Charge Code",
+      "description": "AFE project accounting and well cost allocation records",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "projectName": { "type": "string" },
+        "wellName": { "type": "string" },
+        "operator": { "type": "string" },
+        "allocatedBudgetUsd": { "type": "number" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "code", "projectName"]
+    },
+    "notifications": {
+      "title": "System Notification",
+      "description": "System operational alerts and radar updates",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "category": { "type": "string" },
+        "severity": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "isRead": { "type": "boolean" }
+      },
+      "required": ["id", "title", "message", "timestamp"]
     }
   },
   "firestore": {
@@ -253,6 +283,14 @@
     "/presence/{presenceId}": {
       "schema": { "$ref": "#/entities/presence" },
       "description": "Real-time active user session heartbeats and operational presence"
+    },
+    "/charge_codes/{chargeCodeId}": {
+      "schema": { "$ref": "#/entities/charge_codes" },
+      "description": "Project & Well AFE cost accounting and budget codes"
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/notifications" },
+      "description": "System operational notifications and alerts"
     }
   }
 }

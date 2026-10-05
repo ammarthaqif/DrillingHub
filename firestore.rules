@@ -106,6 +106,20 @@ service cloud.firestore {
       allow create, update: if isValidId(presenceId);
       allow delete: if isValidId(presenceId);
     }
+
+    // Charge Codes Collection - Project & Well AFE Cost Accounting
+    match /charge_codes/{chargeCodeId} {
+      allow read: if true;
+      allow create, update: if isValidId(chargeCodeId);
+      allow delete: if isValidId(chargeCodeId);
+    }
+
+    // Notifications Collection - System Operational Notifications & Radar Alerts
+    match /notifications/{notificationId} {
+      allow read: if true;
+      allow create, update: if isValidId(notificationId);
+      allow delete: if isValidId(notificationId);
+    }
   }
 }
 

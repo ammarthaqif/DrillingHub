@@ -10,6 +10,7 @@ import {
   onSnapshot, 
   setDoc, 
   getDoc, 
+  getDocFromServer,
   getDocs, 
   updateDoc, 
   deleteDoc, 
@@ -32,14 +33,16 @@ try {
   setLogLevel('error');
 } catch {}
 
-// Encrypt credentials at rest & dynamically decrypt on app initialization
+const env: any = (typeof import.meta !== 'undefined' && (import.meta as any).env) ? (import.meta as any).env : (typeof process !== 'undefined' ? (process as any).env : {});
+
+// Support both embedded configuration and Vercel / Render cloud environment variables
 const rawConfig = {
-  apiKey: firebaseConfigJson?.apiKey || '',
-  authDomain: firebaseConfigJson?.authDomain || '',
-  projectId: firebaseConfigJson?.projectId || '',
-  storageBucket: firebaseConfigJson?.storageBucket || '',
-  messagingSenderId: firebaseConfigJson?.messagingSenderId || '',
-  appId: firebaseConfigJson?.appId || '',
+  apiKey: env.VITE_FIREBASE_API_KEY || firebaseConfigJson?.apiKey || '',
+  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfigJson?.authDomain || '',
+  projectId: env.VITE_FIREBASE_PROJECT_ID || firebaseConfigJson?.projectId || '',
+  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfigJson?.storageBucket || '',
+  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfigJson?.messagingSenderId || '',
+  appId: env.VITE_FIREBASE_APP_ID || firebaseConfigJson?.appId || '',
 };
 
 // Protect credential strings with dynamic encrypted payload container
@@ -50,7 +53,7 @@ let app: any;
 let dbInstance: any;
 let authInstance: any;
 
-export const dedicatedDatabaseId = firebaseConfigJson?.firestoreDatabaseId || '(default)';
+export const dedicatedDatabaseId = env.VITE_FIREBASE_DATABASE_ID || firebaseConfigJson?.firestoreDatabaseId || '(default)';
 
 try {
   app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
@@ -71,6 +74,45 @@ try {
 
 export const db = dbInstance;
 export const auth = authInstance;
+
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+  };
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth?.currentUser?.uid,
+      email: auth?.currentUser?.email,
+      emailVerified: auth?.currentUser?.emailVerified,
+      isAnonymous: auth?.currentUser?.isAnonymous,
+      tenantId: auth?.currentUser?.tenantId,
+    },
+    operationType,
+    path
+  };
+  console.warn('Firestore Operation Notice:', JSON.stringify(errInfo));
+  return errInfo;
+}
 
 export interface MicrosoftAuthResult {
   success: boolean;
@@ -181,5 +223,5 @@ export const testFirestoreConnection = async (): Promise<{
   }
 };
 
-export { collection, doc, onSnapshot, setDoc, getDoc, getDocs, updateDoc, deleteDoc, writeBatch, signOut, onAuthStateChanged };
+export { collection, doc, onSnapshot, setDoc, getDoc, getDocFromServer, getDocs, updateDoc, deleteDoc, writeBatch, signOut, onAuthStateChanged };
 
