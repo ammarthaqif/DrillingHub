@@ -2,6 +2,16 @@ import { TubularItem, MaterialTransferTicket, UserProfile, SurplusBookingRequest
 
 export const INITIAL_USERS: UserProfile[] = [
   {
+    id: 'usr-ammar-admin',
+    name: 'Ammar Thaqif',
+    role: 'System Administrator',
+    department: 'Executive Engineering & Architecture',
+    location: 'Main Supply Base Yard',
+    email: 'ammarthaqif.ar@gmail.com',
+    status: 'Active Approved',
+    isCorporateVerified: true,
+  },
+  {
     id: 'usr-main-admin',
     name: 'Corporate System Admin',
     role: 'System Administrator',
